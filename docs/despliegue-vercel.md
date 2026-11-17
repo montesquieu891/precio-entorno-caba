@@ -1,6 +1,6 @@
-# Despliegue privado en Vercel
+# Despliegue en Vercel
 
-La interfaz web también corre en Vercel, en `https://precio-entorno-caba.vercel.app`, con los **datos reales y solo para la cuenta dueña del proyecto**. Los permisos de las fuentes cubren la lectura de sus sitios, no mostrar sus avisos al público. Por eso el proyecto está protegido con Vercel Authentication para todos los despliegues: para abrirlo hay que iniciar sesión en Vercel con esa cuenta.
+La interfaz web también corre en Vercel, en `https://precio-entorno-caba.vercel.app`, con los **datos reales y acceso público** desde el 17/11/2026. Hasta esa fecha estuvo protegida con Vercel Authentication. La persona dueña del proyecto confirmó que las fuentes del catálogo (inmobiliarias y portales, incluidos Zonaprop, Clarín y Mob) autorizan mostrar sus avisos al público. Si una fuente retira ese permiso, hay que sacar sus avisos de las bases antes del siguiente despliegue o volver a activar la protección.
 
 ## Cómo está armado
 
@@ -24,14 +24,15 @@ Sin `--desplegar`, el script solo arma la carpeta. La carpeta queda vinculada al
 
 ## Protección
 
-- El proyecto usa `ssoProtection.deploymentType = "all"`: la URL de producción y las generadas piden iniciar sesión.
-- **Comprobarlo después de cada cambio de configuración**, sin sesión:
+- Desde el 17/11/2026 el proyecto no tiene `ssoProtection`: la URL de producción y las generadas abren sin sesión. Se desactivó con `vercel project protection disable precio-entorno-caba --sso`.
+- Para volver a hacerla privada: `vercel project protection enable precio-entorno-caba --sso` y comprobar, sin sesión:
 
   ```bash
   curl -s -o /dev/null -w "%{http_code}\n" https://precio-entorno-caba.vercel.app/api/estado
   ```
 
-  Tiene que responder `302` (redirección al inicio de sesión de Vercel), nunca `200`.
+  Con la protección activa tiene que responder `302` (redirección al inicio de sesión de Vercel); pública, `200`.
+- Con la web abierta, cualquiera puede guardar una búsqueda con aviso por correo. Cada alta llega al escenario de Make, que en el plan gratuito tiene un tope de operaciones.
 - **Lección del primer despliegue (13/11/2026):** la protección estándar de un proyecto nuevo cubre las URL generadas, pero no `precio-entorno-caba.vercel.app`. Además, el primer despliegue de un proyecto va directo a producción. Durante unos minutos esa URL respondió sin sesión, hasta que se pasó la protección a `all`. En un proyecto nuevo, activar la protección para todos los despliegues **antes** del primer despliegue.
 
 ## Secretos

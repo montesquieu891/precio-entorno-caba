@@ -13,8 +13,8 @@ despliegue porque el autor del commit no es miembro del proyecto.
   captura ni la app de Streamlit.
 - Conserva `.vercel/`, donde la CLI guarda a qué proyecto está vinculada la carpeta.
 
-Los datos reales son para uso privado: el proyecto de Vercel tiene que tener activa la protección con
-Vercel Authentication (ver docs/despliegue-vercel.md).
+La web es pública desde el 17/11/2026: las fuentes autorizan mostrar sus avisos. Si alguna retira el
+permiso, sacar sus avisos o volver a activar la protección (ver docs/despliegue-vercel.md).
 """
 
 import io
