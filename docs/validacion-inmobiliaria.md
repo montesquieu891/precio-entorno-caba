@@ -20,17 +20,31 @@ Este protocolo cubre el eje "Valor para el usuario" y el entregable de validaci�
 1. Confirmar por escrito el permiso de la inmobiliaria y el uso de los datos: solo agregados y sin datos de clientes.
 2. Correr la captura (`python -m precio_entorno.inmobiliarias --autorizacion-confirmada`) e importar `avisos.json` en **Datos reales**.
 3. Cargar en la app cada búsqueda del participante y anotar su ID en la planilla.
-4. Copiar la planilla [registro-validacion.csv](plantillas/registro-validacion.csv) para registrar las tareas y las alertas.
+4. Copiar la planilla [registro-validacion.csv](plantillas/registro-validacion.csv) para registrar las tareas y las alertas. Además de tiempos y opciones, tiene estas columnas:
+   - `orden`: 1 o 2, según qué método se usó primero en la búsqueda;
+   - `terminada`: `si` o `no`, si se llegó al tope de tiempo;
+   - `fecha_captura_app`: fecha de la captura que usó la app;
+   - `brecha_pct`: brecha de precio del aviso alertado frente a la referencia.
+5. Antes de la primera tarea, acordar con la inmobiliaria y dejar por escrito:
+   - los criterios de compatibilidad de cada búsqueda;
+   - cuándo una tarea está terminada: la persona tiene la lista de avisos que enviaría al comprador;
+   - el tope de tiempo por tarea (propuesta: 30 minutos);
+   - los segmentos de análisis: barrios, rango de presupuesto, ambientes y cantidad de coincidencias;
+   - los umbrales de la sección 5.
+
+   Estos criterios no se cambian después de ver los resultados.
 
 ## 4. Tareas
 
-**Tarea A · Encontrar opciones.** Para cada búsqueda, la persona encuentra los avisos compatibles de dos maneras, en orden alternado entre búsquedas para no favorecer a ninguna:
+**Tarea A · Encontrar opciones.** Para cada búsqueda, la persona encuentra los avisos compatibles de dos maneras:
 - **Método habitual:** portales, CRM o planillas propias.
 - **App:** comparación de barrios y lista de coincidencias.
 
-Se registra el tiempo hasta tener la lista, la cantidad de opciones encontradas y cuántas considera relevantes.
+La mitad de las búsquedas empieza con el método habitual y la otra mitad con la app, en orden asignado al azar antes de empezar. Así el aprendizaje de la segunda pasada se reparte entre los dos métodos.
 
-**Tarea B · Revisar alertas.** Después de cada captura nueva se importan los avisos y se revisan las alertas. Para cada una, la persona marca:
+Se registran el orden, el tiempo hasta tener la lista, la cantidad de opciones encontradas, cuántas considera relevantes y la fecha de la última captura de la app. Si se llega al tope sin terminar, se registra el tope y la tarea se marca como no terminada.
+
+**Tarea B · Revisar alertas.** Después de cada captura nueva se importan los avisos y se revisan las alertas. Para cada una se registran la fecha de captura y la brecha de precio que muestra la app, y la persona marca:
 - `util`: la enviaría al comprador;
 - `no_util`: coincide con los filtros pero no sirve, e indica el motivo;
 - `ya_conocida`: ya la tenía por otra vía.
@@ -42,15 +56,22 @@ Se registra el tiempo hasta tener la lista, la cantidad de opciones encontradas 
 
 ## 5. Métricas
 
-| Métrica | Cálculo | Fuente |
-| --- | --- | --- |
-| Tiempo ahorrado por búsqueda | Mediana de (método habitual − app), en minutos | Tarea A |
-| Cobertura | Opciones relevantes de la app / opciones relevantes del método habitual | Tarea A |
-| Precisión de alertas | Alertas `util` / alertas revisadas | Tarea B |
-| Novedad | Alertas `util` no `ya_conocida` / alertas `util` | Tarea B |
-| Costo operativo semanal | Minutos de captura, importación y revisión por semana, y USD de servicios (hoy 0) | Tarea C |
+La definición completa y su justificación están en [Métrica de negocio](entrega-metrica-negocio.md). Los umbrales son una propuesta a confirmar con la inmobiliaria en la preparación.
 
-Con 5 a 10 búsquedas, los resultados son orientativos. Se reportan con su cantidad de casos y sin extrapolar a todo el mercado.
+| Métrica | Cálculo | Fuente | Umbral propuesto |
+| --- | --- | --- | --- |
+| **Tiempo ahorrado por búsqueda (principal)** | Mediana de (método habitual − app) por búsqueda, en minutos | Tarea A | Positiva, con ahorro en la mayoría de las búsquedas |
+| Cobertura | Opciones relevantes de la app / opciones relevantes del método habitual | Tarea A | ≥ 80 % |
+| Precisión de alertas | Alertas `util` / alertas revisadas | Tarea B | ≥ 50 % |
+| Novedad | Alertas `util` no `ya_conocida` / alertas `util` | Tarea B | > 0, con casos documentados |
+| Búsquedas con oferta compatible | Búsquedas con al menos un aviso compatible / búsquedas evaluadas | Tarea A | Se reporta, sin umbral |
+| Costo operativo semanal | Minutos de captura, importación y revisión por semana, y USD de servicios (Apify, Make) | Tarea C | Menor que el tiempo ahorrado en la semana |
+
+- **Reporte del tiempo ahorrado:** cada diferencia, mediana, rango intercuartílico, búsquedas con ahorro positivo, tareas no terminadas y búsquedas sin coincidencias. Se informa también según qué método se usó primero.
+- **Brecha de precio:** se compara la precisión de las alertas con brecha negativa frente a la del resto, cada una con su n. Si no difieren, la brecha no se usa para ordenar.
+- **Denominador cero:** el indicador queda sin dato y se muestran los conteos.
+
+Con 5 a 10 búsquedas, los resultados son orientativos. Se reportan con su cantidad de casos, sin p-valores como evidencia y sin extrapolar a todo el mercado.
 
 ## 6. Entrevista final (20 minutos)
 
@@ -71,7 +92,7 @@ Solo después de medir, el beneficio mensual puede estimarse así:
 
 > beneficio = búsquedas activas por mes × minutos ahorrados por búsqueda × costo por minuto del personal − costo operativo mensual
 
-Las cifras se reportan como un escenario con sus supuestos, no como una proyección de ingresos.
+Las cifras se reportan como un escenario con sus supuestos, no como una proyección de ingresos. Se calcula con el cuartil inferior, la mediana y el cuartil superior del ahorro medido. Las búsquedas por mes y el costo por minuto salen de la ficha o de la entrevista y se citan como supuestos.
 
 ## 8. Cuidado de los datos
 

@@ -61,7 +61,7 @@ Cada afirmación importante lleva un estado y un código de evidencia (`E1`, `E2
 | --- | --- | --- |
 | Preferencias, comparación de barrios por coincidencias, búsqueda guardada y una alerta por aviso nuevo y búsqueda, sin repetir alertas al reimportar un lote | **Implementado** y cubierto por pruebas | [README](../README.md), `tests/` |
 | Catálogo de venta con 3.820 avisos válidos de Zonaprop, RE/MAX, Century 21, Migliorisi y Clarín, capturados con autorización el 7 y 8/11/2026 | **Implementado** | [README](../README.md), [EDA de avisos](eda-avisos.md) |
-| Actualización automática cada 2 días y correo de alertas orquestado por Make con un Actor de Apify | **Implementado**. El 9/11/2026 generó una alerta real para la búsqueda guardada de Caballito **[Obs, E28]** | [README](../README.md#actualización-automática) |
+| Actualización automática cada 2 días y correo de alertas orquestado por Make con un Actor de Apify | **Implementado**. El 9/11/2026 generó una alerta real para la búsqueda guardada de Caballito **[Obs, E28]** | [README](operacion.md#4-actualización-automática) |
 | Mapa del Delito como contexto, con período y unidad geográfica | **Implementado** | [EDA de delitos](eda-delitos.md) |
 | Referencia de precio publicado por m² (MAE de 469 USD/m² en validación cruzada) | **Implementado como evaluación**. Su valor de uso no está probado | [Modelo](modelo.md) |
 | Precio de USD 39 por mes, piloto de 14 días y protocolo de validación | **Propuesto** | [Pricing](pricing.md), [protocolo](validacion-inmobiliaria.md) |
@@ -425,7 +425,7 @@ flowchart TD
 - Roomix centra sus alertas y precios en el alquiler, con frecuencia urgente por WhatsApp **[Doc, E16]**.
 - El Index Zonaprop informa un alquiler medio de $898.154 por mes para un 2 ambientes en septiembre de 2026 **[Doc, E9]**.
 - Según el informe de Cabaprop con la UTN, el 35 % de las alertas de búsqueda de sus usuarios correspondía a alquiler de largo plazo. Es una muestra de usuarios del portal, no del mercado **[Doc, E23]**.
-- El prototipo ya tiene una base de alquiler con 3.271 avisos **[Doc, [README](../README.md#comprar-o-alquilar)]**. Queda fuera del segmento principal.
+- El prototipo ya tiene una base de alquiler con 3.271 avisos **[Doc, [Arquitectura](arquitectura.md#5-base-de-datos)]**. Queda fuera del segmento principal.
 
 ---
 

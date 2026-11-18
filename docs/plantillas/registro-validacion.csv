@@ -1,5 +1,5 @@
-fecha,tarea,busqueda_id,metodo,minutos,opciones_encontradas,opciones_relevantes,alerta_aviso_id,valoracion_alerta,motivo,notas
-2026-11-10,A,1,habitual,,,,,,,
-2026-11-10,A,1,app,,,,,,,
-2026-11-12,B,1,app,,,,remax:EJEMPLO,util,,
-2026-11-12,C,,captura,,,,,,,
+fecha,tarea,busqueda_id,metodo,minutos,opciones_encontradas,opciones_relevantes,alerta_aviso_id,valoracion_alerta,motivo,orden,terminada,fecha_captura_app,brecha_pct,notas
+2026-11-10,A,1,habitual,,,,,,,1,,,,
+2026-11-10,A,1,app,,,,,,,2,,2026-11-09,,
+2026-11-12,B,1,app,,,,remax:EJEMPLO,util,,,,2026-11-12,,
+2026-11-12,C,,captura,,,,,,,,,,,
