@@ -340,18 +340,40 @@ function renderLista() {
       <button class="boton-primario" type="button" id="activar-alerta">Activar una alerta</button>
       <button class="boton-texto" type="button" data-fuentes>Ver de dónde salen los datos</button>
     </div>`;
+  // Idea central (Made to Stick): elegí el barrio antes que el departamento. Todo lo concreto sale de los datos
+  // de la búsqueda actual: el ejemplo es el primer barrio de la lista y la proporción se calcula con los totales.
+  const ejemplo = con[0];
+  const e = ejemplo?.entorno;
+  const cadaCuantos = encajan ? Math.round(total / encajan) : 0; // 4.257 / 670 → 1 de cada 6
+  const proporcion = cadaCuantos >= 2
+    ? `de cada ${cadaCuantos} avisos publicados, ${cadaCuantos - 1} no son para vos. Te mostramos el que sí`
+    : 'te mostramos los avisos que encajan';
   const guia = estado.modo === 'demo'
     ? 'Sabemos lo que es saltar entre pestañas de portales. Por eso juntamos avisos y datos abiertos de la Ciudad, cada uno con su fuente y su período. En esta demo, los avisos son de ejemplo.'
-    : `Sabemos lo que es saltar entre pestañas de portales. Por eso cruzamos ${numero.format(total)} avisos vigentes con los datos abiertos de la Ciudad, cada uno con su fuente y su período.`;
+    : `Sabemos lo que es saltar entre pestañas de portales: ${proporcion}, con datos abiertos de la Ciudad que citan su fuente y su período.`;
+  const sub = ejemplo
+    ? `Hasta ${dinero(estado.presupuesto, estado.moneda)}: hay avisos que encajan en ${con.length} ${plural(con.length, 'barrio', 'barrios')}.
+      En ${esc(ejemplo.barrio)}, por ejemplo: ${ejemplo.coincidencias} ${plural(ejemplo.coincidencias, 'aviso', 'avisos')},
+      mediana ${dinero(ejemplo.mediana, estado.moneda)}${e?.subte_lineas.length ? `, subte ${enumerar(e.subte_lineas)} en el barrio` : ''}.`
+    : '';
+  const ruidoDia = e ? porcentaje(e.ruido?.diurno?.alto) : null;
+  const alrededor = e ? [
+    e.subte_estaciones ? `${e.subte_estaciones} ${plural(e.subte_estaciones, 'estación', 'estaciones')} de subte` : '',
+    e.verdes_cantidad ? `${decimal.format(e.verdes_ha)} ha de plazas` : '',
+    ruidoDia != null ? `ruido fuerte en ${Math.round(ruidoDia / 10)} de cada 10 puntos medidos de día` : '',
+  ].filter(Boolean) : [];
+  const paso2 = alrededor.length
+    ? `Mirá qué hay a la vuelta: en ${esc(ejemplo.barrio)}, ${enumerar(alrededor)}`
+    : 'Mirá qué hay a la vuelta de cada barrio: subte, plazas, ruido y delitos registrados';
   const portada = con.length
     ? `<header class="portada">
-      <h1 class="titulo-lista">Encontrá el barrio donde te alcanza</h1>
-      <p class="portada-sub">Elegir un barrio que conocés solo de nombre da vértigo. Te mostramos qué hay alrededor
-        —subte, plazas, ruido y delitos registrados— ${con.length === 1 ? 'en el barrio' : `en los ${con.length} barrios`}
-        donde hay avisos para tu presupuesto.</p>
+      <h1 class="titulo-lista">Elegí el barrio antes que el departamento</h1>
+      <p class="portada-sub">${sub}</p>
       <p class="portada-guia">${guia}</p>
       <ol class="plan" aria-label="Cómo funciona">
-        <li>Decí cuánto tenés</li><li>Compará barrios en el mapa</li><li>Activá una alerta</li>
+        <li>Poné tu presupuesto y ves en qué barrios hay avisos para vos</li>
+        <li>${paso2}</li>
+        <li>Te avisamos cuando aparece un aviso nuevo que encaja, sin volver a buscar</li>
       </ol>
       ${acciones}
       <p class="portada-pie">${numero.format(encajan)} de ${numero.format(total)} avisos en ${estado.moneda} encajan con tu búsqueda.

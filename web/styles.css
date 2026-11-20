@@ -1124,8 +1124,9 @@ button, input, select { font: inherit; color: inherit; }
 .portada > .plan, .portada > .acciones-portada { margin-top: 1rem; }
 .portada-sub { max-width: 34em; }
 .portada-guia, .portada-pie { max-width: 34em; color: var(--asfalto-suave); font-size: var(--t-chico); }
-.plan { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; font-size: var(--t-chico); font-weight: 500; counter-reset: paso; }
-.plan li { counter-increment: paso; display: inline-flex; align-items: center; gap: 0.5rem; }
+/* Cada paso es una frase con un resultado concreto: van uno debajo del otro, con el número arriba a la izquierda. */
+.plan { list-style: none; padding: 0; display: grid; gap: 0.5rem; max-width: 34em; font-size: var(--t-chico); counter-reset: paso; }
+.plan li { counter-increment: paso; display: grid; grid-template-columns: 1.25rem 1fr; align-items: start; gap: 0.5rem; }
 .plan li::before {
   content: counter(paso); width: 1.25rem; height: 1.25rem; border-radius: 50%; display: inline-grid; place-items: center;
   background: var(--linea-suave); font-size: 0.75rem; font-weight: 700;
