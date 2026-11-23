@@ -98,7 +98,7 @@ Subido y probado en Apify el 20/11/2026 (modelo `1d4013afcf906e8c`). Con `probar
 
 Looker Studio es gratis y lee la planilla directamente: cada vez que Make la reescribe, el dashboard muestra los datos nuevos.
 
-El informe ya está armado: [Precio y Entorno CABA - Dashboard Analytics](https://lookerstudio.google.com/reporting/5057b183-22bb-4370-8c23-a47387a9d6f1). Se completó el 17/11/2026 siguiendo el método de la skill `looker-studio-bigquery` (`.claude/skills/`): una página por pregunta, indicadores antes que el detalle, y la frescura y las aclaraciones visibles.
+El informe ya está armado: [Precio y Entorno CABA - Dashboard Analytics](https://lookerstudio.google.com/reporting/5057b183-22bb-4370-8c23-a47387a9d6f1). Se completó el 17/11/2026 siguiendo el método de la skill `looker-studio-bigquery`: una página por pregunta, indicadores antes que el detalle, y la frescura y las aclaraciones visibles.
 
 ### Ficha de entrega
 

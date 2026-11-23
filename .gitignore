@@ -12,3 +12,9 @@ storage/
 .vercel-build/
 .vercel/
 artifacts/ui-audit/
+
+# Skills de los asistentes de código: quedan solo en la copia local, no en el repositorio.
+.claude/skills/
+.agents/
+.taste-skill/
+skills-lock.json
