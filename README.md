@@ -1,24 +1,15 @@
 # Lüga
 
-El [Colab integral con resultados ejecutados](notebooks/capstone_integral_colab.ipynb) incluye tablas, nueve figuras, conclusiones de los cinco modelos y el anexo de evaluación temporal. Se puede leer sin ejecutar ni subir datos. [Abrir en Google Colab](https://colab.research.google.com/github/montesquieu891/precio-entorno-caba/blob/main/notebooks/capstone_integral_colab.ipynb). Ver [modos de ejecución y guía](docs/colab-integral.md).
+Búsqueda de departamentos en CABA: una persona ingresa sus preferencias, compara barrios, guarda una búsqueda y recibe una alerta cuando aparece un aviso que coincide. Los precios son de publicación, no tasaciones. Los delitos registrados se muestran como contexto, con su período y unidad geográfica.
 
-Prototipo local de búsqueda inmobiliaria. Una persona ingresa sus preferencias, compara barrios, guarda una búsqueda y recibe una alerta cuando aparece un aviso que coincide. Los delitos registrados se muestran como contexto y se analizan por separado para el capstone.
+**Documentación**
 
-El [plan de entrega del capstone](docs/plan-capstone.md) reúne el cronograma de la profesora, las evidencias del repositorio y los pendientes para Analytics, Inference y la defensa comercial.
-
-La [entrega de entrenamiento e inferencia del 18/11](docs/entrega-inferencia.md) documenta el ajuste de HistGradientBoosting, la comparación contra baseline, las métricas técnicas y de negocio, las predicciones en Streamlit y la estimación de costos. Incluye comandos para reproducir sin extracciones nuevas.
-
-El [ANOVA de precios por barrio](docs/anova-barrios.md) compara medias de publicación con Welch y documenta supuestos, tamaño de efecto y comparaciones por pares con ajuste de Holm.
-
-La [memoria matemática](docs/memoria-matematica.md) fundamenta los cinco modelos, sus transformaciones, la validación y el ANOVA. La [auditoría estadística](docs/auditoria-estadistica.md) identifica la comparación principal y sus diferencias con el prototipo operativo. La skill del proyecto está en `.agents/skills/auditoria-estadistica-capstone/`.
-
-La [entrega de Producto 1 del 12/11](docs/entrega-12-11.md) incluye la auditoría de cumplimiento, muestras analíticas, diccionario, guion de demo y acciones de cierre por rol.
-
-La [guía del flujo de trabajo](docs/flujo-de-trabajo.md) conecta la operación del producto con Analytics, Inference y el seguimiento en Trello.
-
-El [trabajo por hacer (JTBD)](docs/jtbd.md) describe el progreso que busca quien se muda dentro de CABA, con sus dimensiones funcional, emocional y social, las alternativas que compiten por ese trabajo y qué falta validar. La [guía de entrevistas](docs/guia-entrevistas.md) tiene 12 preguntas sobre hechos pasados para confirmarlo. El [plan de design sprint](docs/sprint-confianza.md) prueba si la gente confía en la comparación con avisos parecidos que llega en la alerta.
-
-El [plan de crecimiento](docs/plan-de-crecimiento.md) reúne la estrategia, los precios publicados, los costos y el plan semana a semana para la web, el negocio y las formas de cobrar.
+- [Colab integral con resultados](notebooks/capstone_integral_colab.ipynb) ([abrir en Google Colab](https://colab.research.google.com/github/montesquieu891/precio-entorno-caba/blob/main/notebooks/capstone_integral_colab.ipynb)): teoría, EDA, ANOVA, cinco modelos, evaluación y anexo temporal. [Guía](docs/colab-integral.md).
+- [Memoria matemática](docs/memoria-matematica.md) y [auditoría estadística](docs/auditoria-estadistica.md): modelos, validación y ANOVA.
+- [Entrenamiento e inferencia](docs/entrega-inferencia.md): modelo operativo, baseline, métricas, validación temporal y costos.
+- [ANOVA de precios por barrio](docs/anova-barrios.md).
+- [Plan del capstone](docs/plan-capstone.md), [entrega del 12/11](docs/entrega-12-11.md) y [flujo de trabajo](docs/flujo-de-trabajo.md).
+- Negocio: [modelo de negocio](docs/modelo-de-negocio.md), [plan de crecimiento](docs/plan-de-crecimiento.md), [JTBD](docs/jtbd.md), [guía de entrevistas](docs/guia-entrevistas.md) y [design sprint](docs/sprint-confianza.md).
 
 ## Flujo de datos: Make orquesta, Apify procesa
 
@@ -107,7 +98,7 @@ precio-entorno-caba/
 | Ridge | 524,5 | 0,521 | 15,5 % |
 | Mediana de comparables (referencia) | 585,6 | 0,407 | 17,1 % |
 
-Por qué: tuvo el menor error en las tres métricas, maneja de forma nativa los faltantes y las categorías (barrio, inmobiliaria), y entrena en segundos. Random Forest quedó cerca, con más error y casi el doble de tiempo por pliegue (12,2 s contra 6,9 s); MLP y KNN tuvieron más error; Ridge, lineal, no capta las interacciones entre superficie, ubicación y barrio. El modelo que usa el Actor es un HGB operativo (pérdida absoluta, 300 iteraciones, tasa 0,05, 21 variables numéricas y 2 categóricas), entrenado fuera del Actor con `python -m precio_entorno.inferencia entrenar`.
+Por qué: tuvo el menor error en las tres métricas, maneja de forma nativa los faltantes y las categorías (barrio, inmobiliaria), y entrena en segundos. Random Forest quedó cerca, con más error y casi el doble de tiempo por pliegue (12,2 s contra 6,9 s); MLP y KNN tuvieron más error; Ridge, lineal, no capta las interacciones entre superficie, ubicación y barrio. El modelo que usa el Actor es un HGB operativo (pérdida absoluta, 300 iteraciones, tasa 0,05, 21 variables numéricas y 2 categóricas), entrenado fuera del Actor con `python -m precio_entorno.inferencia entrenar`. Las corridas exploratorias anteriores (delitos como variable, seis modelos del 14/11) están en [docs/modelo.md](docs/modelo.md).
 
 ## Contrato del actor de inferencia
 
@@ -206,26 +197,7 @@ El diseño está descripto en [docs/ui.md](docs/ui.md).
 3. Compará barrios con tus filtros, elegí uno y guardá la búsqueda. Importá un lote posterior del mismo catálogo. Cada ID nuevo compatible genera una alerta por búsqueda. Volver a importar ese ID conserva la primera observación y la alerta existente. Los lotes agregan avisos al historial local. La app aún no actualiza precios ni da de baja avisos ausentes de una captura posterior.
 4. Cargá el CSV oficial del [Mapa del Delito de CABA](https://data.buenosaires.gob.ar/dataset/delitos). Cada archivo válido reemplaza el contexto anterior y queda identificado por nombre y SHA-256. Elegí barrio y mes para ver los hechos registrados por tipo y franja. La suma usa la columna de cantidad. Solo se muestra cero si hay filas válidas que lo respaldan. Un barrio y mes sin filas válidas figura sin cobertura observada.
 
-### Formato del catálogo
-
-El CSV lleva encabezados y admite coma, punto y coma o tabulación. Para decimales, usá punto o coma sin separador de miles. En un CSV separado por comas, entrecomillá los decimales escritos con coma. El JSON en UTF-8 admite una lista de objetos o un objeto con una lista `listings`.
-
-| Campo requerido | Alias admitidos | Validación |
-| --- | --- | --- |
-| `listing_id` | `id` | Identificador estable dentro del catálogo |
-| `url` | `enlace` | Enlace HTTP o HTTPS sin credenciales |
-| `captured_at` | `fecha_captura` | Fecha o fecha y hora ISO 8601 |
-| `price` | `precio` | Importe publicado entre USD 10.000 y 10.000.000 |
-| `currency` | `moneda` | USD, U$S o US$ |
-| `covered_area_m2` | `covered_area`, `superficie_cubierta` | Superficie cubierta entre 10 y 2.000 m² |
-| `rooms` | `ambientes` | Entero entre 1 y 20 |
-| `neighborhood` | `barrio` | Barrio de CABA |
-
-Además, el precio por m² cubierto debe quedar entre USD 200 y 20.000. Un importe escrito con separador de miles, como `105.000`, se lee como 105 y se descarta por inválido. Los campos opcionales son `total_area_m2` (`superficie_total`, entre 10 y 10.000 m²), `latitude` (`latitud`, `lat`), `longitude` (`longitud`, `lon`) y `location_accuracy_m` (`precision_m`). Si incluís `source` o `fuente`, debe coincidir con el catálogo indicado. Prepará el archivo solo con departamentos residenciales en venta. La app cuenta un pin como utilizable si ambas coordenadas caen en el rectángulo aproximado de CABA y el catálogo declara una precisión de hasta 100 m. En esta etapa el cruce se hace por barrio.
-
-El cargador de delitos admite encabezados como `id-mapa`, `fecha`, `barrio`, `tipo_delito`, `franja_horaria` y `cantidad`, y sus variantes `id_mapa`, `tipo`, `franja` y `cantidad_registrada`. Conserva la fecha del hecho y muestra las franjas faltantes como «Sin dato». El resumen corresponde a las filas válidas del archivo cargado.
-
-Los archivos `data/fixtures/avisos_prueba.csv` y `data/fixtures/delitos_prueba.csv` son ficticios. Las pruebas los cargan en bases temporales. Si querés probar el formulario con esos archivos, usá una copia de la carpeta del proyecto para mantener la base real reservada al catálogo autorizado.
+Campos, alias y validaciones del CSV o JSON: [formato del catálogo](docs/formato-catalogo.md).
 
 ## Comprar o alquilar
 
@@ -298,22 +270,6 @@ La tabla de avisos tiene la columna «Frente a parecidos». Compara el precio pu
 
 Lo calcula `precio_entorno/comparables.py` y viaja en el campo `comparacion` de cada aviso de `/api/barrios/{barrio}/avisos`. Con la base real del 19/11, el 92 % de los avisos de venta y el 86 % de los de alquiler tienen suficientes parecidos.
 
-### Dónde comer (Google Places)
-
-La ficha del barrio muestra los restaurantes, cafés y bares más valorados en Google. Los datos salen de la API oficial de Places (New), nunca de una extracción de Google Maps. La sección aparece solo con datos reales y con la clave configurada.
-
-- **Cuándo consulta:** solo cuando la persona toca «Ver los más valorados en Google» o cambia el tipo de lugar. Cada consulta hace hasta 2 llamadas de Text Search Enterprise.
-- **Qué guarda:** nada de Google. Las calificaciones no se guardan ni se cachean, no se dibujan en el mapa y no alimentan el modelo.
-- **Qué muestra:** los lugares dentro del barrio con al menos 200 reseñas, ordenados por calificación. Si no hay, ofrece bajar el mínimo a 50.
-
-Para habilitarla:
-
-1. Crear un proyecto de Google Cloud con facturación activa y habilitar Places API (New). Lleva tarjeta, aunque el uso quede dentro del tramo gratis.
-2. Poner una cuota diaria en la consola (por ejemplo, 30 llamadas por día) y una alerta de presupuesto.
-3. Copiar la clave en `.env` como `GOOGLE_MAPS_API_KEY`. Opcional: `PRECIO_ENTORNO_LUGARES_TOPE_MES`, el tope mensual de llamadas, que por defecto es 900, debajo de las 1.000 gratis.
-
-El servidor cuenta cada llamada por mes en `data/local/lugares-consumo.sqlite3`, fuera de Git, y deja de consultar al llegar al tope. Las reglas de Google que dan forma a la sección están en [docs/ui.md](docs/ui.md#dónde-comer-google-places-en-vivo).
-
 ## Captura de inmobiliarias autorizadas
 
 RE/MAX, Century 21 y Migliorisi autorizaron la lectura de sus sitios. Sus avisos forman un único catálogo consolidado, `inmobiliarias-autorizadas`. El ID de cada aviso lleva el prefijo de su inmobiliaria, por ejemplo `remax:…`.
@@ -369,24 +325,6 @@ El [informe](docs/eda-delitos.md) analiza los CSV oficiales de 2024 y 2025 por t
 python -m precio_entorno.eda_delitos
 ```
 
-## Evaluación del modelo
-
-> Resultado vigente: la comparación de cinco familias con validación anidada, en [Funciones del pipeline](#funciones-del-pipeline) (HistGradientBoosting, MAE 402,6 USD/m², R² 0,736). Esta sección y la siguiente documentan las corridas exploratorias anteriores, del 8 y el 14 de noviembre.
-
-El [pipeline del modelo](docs/modelo.md) cruza los avisos con los delitos de los 12 meses previos a cada captura, por barrio y en un radio de 500 m cuando el pin lo permite. Compara el MAE en USD/m² de la mediana de comparables, un modelo inmobiliario y el mismo modelo con entorno, con la misma partición por aviso, y lo contrasta con un placebo. Con la base ampliada del 8 de noviembre de 2026 (3.806 avisos: inmobiliarias, Clarín y Zonaprop), el cruce por barrio no muestra ningún aporte de los delitos registrados. Con pines aproximados, el pequeño aporte inicial desaparece al sumar transporte, parques, hospitales, escuelas y gastronomía cercanos. Los posibles duplicados entre fuentes comparten grupo en la partición. El mejor modelo tiene un MAE de 469 USD/m² en la validación cruzada. El detalle está en [docs/modelo.md](docs/modelo.md).
-
-```powershell
-python -m precio_entorno.modelo data/raw/<carpeta>/avisos.json --catalogo zonaprop
-```
-
-### Comparación de seis modelos
-
-`precio_entorno.comparar_modelos` entrena seis modelos de scikit-learn con la misma partición: regresión lineal, árbol de decisión, random forest, HistGradientBoosting, MLP y ElasticNet. La mediana de comparables queda como referencia. Ganan los ensambles: HistGradientBoosting llega a 469 USD/m² en la validación cruzada, y a 410 al sumar antigüedad y cocheras. Los resultados y su lectura están en [docs/modelo.md](docs/modelo.md#comparación-de-seis-modelos--14-de-noviembre-de-2026).
-
-```powershell
-python -m precio_entorno.comparar_modelos --control-inmobiliaria
-```
-
 ## Datos reales en la app y validación
 
 La base `data/local/real.sqlite3` tiene cargado el catálogo consolidado y el Mapa del Delito de 2025. Al 8 de noviembre de 2026 suma 1.535 avisos, de los que 18 son de Clarín Inmuebles. Para generar alertas reales:
@@ -419,15 +357,7 @@ schtasks /Delete /TN "PrecioEntornoCABA\Actualizar avisos" /F
 
 ### Alertas por correo con Make
 
-Si `MAKE_WEBHOOK_URL` está en el entorno o en `.env`, cada actualización envía su resumen a ese webhook de Make, haya alertas o no, y también si falló. La URL tiene que ser `https` en un dominio `*.make.com`. Viajan el estado de la corrida (`ok`, `parcial` o `error`), los conteos y las alertas nuevas, sueltas y agrupadas por búsqueda con un resumen listo para el correo. De cada aviso viajan la búsqueda, el ID, el barrio, el precio, la superficie, los ambientes y el enlace, sin datos personales. Si el envío falla, se reintenta una vez y el resultado queda en `actualizaciones.jsonl`, sin detener la actualización. Si la corrida falla, `actualizar.py` termina con código 1.
-
-El escenario **"Precio y Entorno CABA - Alertas"**, que recibía este webhook, quedó inactivo el 9 de noviembre de 2026. Desde entonces, las alertas por correo las orquesta Make con Apify. «Precio y Entorno CABA - Búsquedas» recibe las altas y bajas de la web. «Precio y Entorno CABA - Alertas con Apify» corre cada 2 días el Actor `precio-entorno-alertas` y escribe a cada persona. Los dos escenarios se crean con `python -m precio_entorno.make_escenarios crear` y están descritos en la [arquitectura](docs/arquitectura.md#81-actor-de-alertas). Ambos usan la planilla de Google Sheets "Precio y Entorno CABA - Alertas (venta y alquiler)". La planilla tiene operación, precio, moneda, expensas y los datos del aviso, más `valoracion` y `motivo` para la validación con la inmobiliaria. La primera planilla, "Precio y Entorno CABA - Alertas", quedó sin uso y solo tiene una fila de prueba. Las conexiones de Google se autorizan desde un navegador que permita ventanas emergentes, y la de Gmail vence el 6 de mayo de 2027. Para probar cada ruta con una corrida ficticia, sin capturar ni importar:
-
-```powershell
-python -m precio_entorno.actualizar --probar-make alertas
-python -m precio_entorno.actualizar --probar-make sin-novedades
-python -m precio_entorno.actualizar --probar-make error
-```
+Las alertas por correo las orquesta Make con Apify. El escenario «Precio y Entorno CABA - Búsquedas» recibe las altas y bajas de la web, y «Precio y Entorno CABA - Alertas con Apify» corre cada 2 días el Actor `precio-entorno-alertas` y le escribe a cada persona. Los dos se crean con `python -m precio_entorno.make_escenarios crear` y usan la planilla «Precio y Entorno CABA - Alertas (venta y alquiler)». Detalle en la [arquitectura](docs/arquitectura.md#81-actor-de-alertas).
 
 La tarea corre solo con la sesión de Windows iniciada. Si una inmobiliaria retira el permiso o empieza a bloquear, quitá su sitio con `--sitios` en `scripts/actualizar.cmd` o deshabilitá la tarea. El [protocolo de validación](docs/validacion-inmobiliaria.md) y su [planilla](docs/plantillas/registro-validacion.csv) guían la prueba de dos semanas con una inmobiliaria: tiempo ahorrado, alertas útiles, costo operativo y disposición a pagar.
 
