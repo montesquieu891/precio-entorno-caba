@@ -36,8 +36,7 @@ def parks(collection):
             continue
         kept += 1
         name = feature['properties'].get('nombre')
-        for ring in rings(feature['geometry']):
-            points += [{'name': name, 'lat': lat, 'lon': lon} for lon, lat in ring]
+        points += [{'name': name, 'lat': lat, 'lon': lon} for ring in rings(feature['geometry']) for lon, lat in ring]
     return points, kept
 
 

@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from precio_entorno.importing import BARRIOS, CURRENCIES, OPERATIONS, key, parse_listings
-from precio_entorno.inmobiliarias import CATALOGS, DEFAULT_SITES, SITES, run_capture
+from precio_entorno.inmobiliarias import CATALOGS, DEFAULT_SITES, run_capture
 from precio_entorno.make_webhook import ALERT_FIELDS, group
 from precio_entorno.matching import matches
 
@@ -124,11 +124,7 @@ def run(config, seen, client=None, echo=print, workdir=None, now=None):
             sites_status = {s: v['estado'] for s, v in log['sitios'].items()}
             if any(v != 'completo' for v in sites_status.values()) and summary['estado'] == 'ok':
                 summary['estado'] = 'parcial'
-            fresh, ids = [], set()
-            for listing in listings:
-                if listing['id'] not in known and listing['id'] not in ids:
-                    ids.add(listing['id'])
-                    fresh.append(listing)
+            fresh = _fresh(listings, known)
             # Se guardan también los IDs descartados, para no volver a pedir su ficha en cada corrida.
             new_seen[operation] = sorted(known | {r['listing_id'] for r in raw})
             op.update(sitios=sites_status, leidos=report.read, validos=len(listings), descartados=report.discarded,
@@ -136,14 +132,31 @@ def run(config, seen, client=None, echo=print, workdir=None, now=None):
             if op['linea_base']:
                 echo(f'{operation}: primera corrida, {len(new_seen[operation])} IDs quedan como línea de base')
                 continue
-            for search in (s for s in searches if s['operation'] == operation):
-                found = [_alert(l, search) for l in fresh if l['neighborhood'] == search['neighborhood']
-                         and matches(l, search['budget'], search['min_area'], search['rooms'], search['currency'],
-                                     search['or_more'])]
-                if not found:
-                    continue
-                summary_item, = group(found, [search])
-                items.append({'operacion': operation, **summary_item, 'alertas': found})
-                summary['busquedas_con_avisos'] += 1
-                summary['alertas'] += len(found)
+            found_items = _search_items(operation, searches, fresh)
+            items += found_items
+            summary['busquedas_con_avisos'] += len(found_items)
+            summary['alertas'] += sum(len(item['alertas']) for item in found_items)
     return items, new_seen, summary
+
+
+def _fresh(listings, known):
+    """Avisos que no estaban entre los vistos, sin repetir ID."""
+    fresh, ids = [], set()
+    for listing in listings:
+        if listing['id'] not in known and listing['id'] not in ids:
+            ids.add(listing['id'])
+            fresh.append(listing)
+    return fresh
+
+
+def _search_items(operation, searches, fresh):
+    """Un ítem por cada búsqueda de la operación que tiene avisos nuevos que la cumplen."""
+    items = []
+    for search in (s for s in searches if s['operation'] == operation):
+        found = [_alert(l, search) for l in fresh if l['neighborhood'] == search['neighborhood']
+                 and matches(l, search['budget'], search['min_area'], search['rooms'], search['currency'],
+                             search['or_more'])]
+        if found:
+            summary_item, = group(found, [search])
+            items.append({'operacion': operation, **summary_item, 'alertas': found})
+    return items

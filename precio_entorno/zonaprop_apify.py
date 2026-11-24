@@ -217,6 +217,26 @@ def run(accounts, out, barrios, operation, max_items, cap_usd, margin_usd=0.25):
     return listings, log
 
 
+def reread_runs(source, clients, by_id, log):
+    """Relee el dataset de cada corrida de un registro y suma sus avisos a `by_id`."""
+    for entry in source['corridas']:
+        # Una corrida que ya no se puede leer (cuenta sin acceso, resultados vencidos) se anota y se saltea.
+        try:
+            client = clients[entry.get('cuenta') or 1]
+            run_ = client.request(f"actor-runs/{entry['run_id']}")['data']
+            items = client.request(f"datasets/{run_['defaultDatasetId']}/items",
+                                   params={'format': 'json', 'clean': 'true'})
+        except (RuntimeError, KeyError) as error:
+            log['corridas'].append({'barrio': entry['barrio'], 'run_id': entry['run_id'], 'error': str(error)})
+            print(f"{entry['barrio']}: sin leer ({error})", flush=True)
+            continue
+        batch, skipped = adapt_all(items, source['captura'], source['operacion'])
+        by_id.update((x['listing_id'], x) for x in batch)
+        log['corridas'].append({'barrio': entry['barrio'], 'run_id': entry['run_id'], 'avisos': len(batch),
+                                'omitidos': skipped})
+        print(f"{entry['barrio']}: {len(batch)} avisos", flush=True)
+
+
 def reread(registros, clients, out):
     """Vuelve a adaptar los resultados de corridas ya hechas, sin correr el actor.
 
@@ -230,22 +250,7 @@ def reread(registros, clients, out):
     for path in registros:
         source = json.loads(Path(path).read_text(encoding='utf-8'))
         log['releido_de'].append(Path(path).parent.name)
-        for entry in source['corridas']:
-            # Una corrida que ya no se puede leer (cuenta sin acceso, resultados vencidos) se anota y se saltea.
-            try:
-                client = clients[entry.get('cuenta') or 1]
-                run_ = client.request(f"actor-runs/{entry['run_id']}")['data']
-                items = client.request(f"datasets/{run_['defaultDatasetId']}/items",
-                                       params={'format': 'json', 'clean': 'true'})
-            except (RuntimeError, KeyError) as error:
-                log['corridas'].append({'barrio': entry['barrio'], 'run_id': entry['run_id'], 'error': str(error)})
-                print(f"{entry['barrio']}: sin leer ({error})", flush=True)
-                continue
-            batch, skipped = adapt_all(items, source['captura'], source['operacion'])
-            by_id.update((x['listing_id'], x) for x in batch)
-            log['corridas'].append({'barrio': entry['barrio'], 'run_id': entry['run_id'], 'avisos': len(batch),
-                                    'omitidos': skipped})
-            print(f"{entry['barrio']}: {len(batch)} avisos", flush=True)
+        reread_runs(source, clients, by_id, log)
     listings = list(by_id.values())
     log['avisos'] = len(listings)
     log['corridas_sin_leer'] = sum('error' in entry for entry in log['corridas'])

@@ -85,8 +85,7 @@ def _compilar():
         formas = [_patron(nombre)] + VARIANTES.get(nombre, [])
         if nombre == 'La Boca':
             formas = [r'[Ll]a\s+Boca(?!\s+Juniors)']
-        for forma in formas:
-            patrones.append((forma, (nombre,), None))
+        patrones += [(forma, (nombre,), None) for forma in formas]
     for alias, barrios in ALIAS.items():
         patrones.append((_patron(alias), barrios, None))
     for alias, motivo in AMBIGUAS.items():
@@ -121,15 +120,22 @@ def menciones(texto):
     usado = bytearray(len(texto))
     out = []
     for regex, barrios, motivo in PATRONES:
-        for m in regex.finditer(texto):
-            if any(usado[m.start():m.end()]):
-                continue
-            usado[m.start():m.end()] = b'\x01' * (m.end() - m.start())
-            descarte = _descartada(texto, m.start(), m.end())
-            if descarte:
-                continue  # No es una mención de barrio.
-            out.append((m.start(), m.group(0), barrios, motivo))
+        out += [(m.start(), m.group(0), barrios, motivo) for m in _coincidencias_libres(regex, texto, usado)]
     return sorted(out)
+
+
+def _coincidencias_libres(regex, texto, usado):
+    """Coincidencias que no se superponen con otra ya tomada ni se descartan; marca su tramo como usado."""
+    out = []
+    for m in regex.finditer(texto):
+        if any(usado[m.start():m.end()]):
+            continue
+        usado[m.start():m.end()] = b'\x01' * (m.end() - m.start())
+        descarte = _descartada(texto, m.start(), m.end())
+        if descarte:
+            continue  # No es una mención de barrio.
+        out.append(m)
+    return out
 
 
 def alcance(titular, bajada, texto):
@@ -179,6 +185,30 @@ def _menciones_de_oracion(oracion):
     return out
 
 
+def _contar_oracion(estado, items, es_cabeza, zona):
+    """Anota las menciones de una oración: ambiguas aparte y, si no, barrios en foco o contados."""
+    subtitulos = {b for _, bs, m, _, s in items if s and not m for b in bs}
+    if subtitulos and not es_cabeza:
+        estado['seccion'] = subtitulos
+    for encontrado, barrios, motivo, compara, subtitulo in items:
+        if motivo or zona == 'otro':
+            motivo = motivo or 'la nota trata sobre otra ciudad o región'
+            if (encontrado, motivo) not in estado['ambiguas']:
+                estado['ambiguas'].append((encontrado, motivo))
+            continue
+        _contar_barrios(estado, barrios, es_cabeza or subtitulo, compara)
+
+
+def _contar_barrios(estado, barrios, destacado, compara):
+    """Un barrio destacado queda en foco; si no, suma una mención propia salvo que sea comparación o de otra sección."""
+    for b in barrios:
+        estado['nombrados'].add(b)
+        if destacado:
+            estado['foco'].add(b)
+        elif not compara and (estado['seccion'] is None or b in estado['seccion']):
+            estado['cuenta'][b] = estado['cuenta'].get(b, 0) + 1
+
+
 def barrios_de(titular, bajada, texto):
     """Barrios principales, incidentales y menciones ambiguas.
 
@@ -186,26 +216,11 @@ def barrios_de(titular, bajada, texto):
     usarlo como comparación ni dentro de la sección de otro barrio. El resto es incidental y no suma.
     """
     zona = alcance(titular, bajada, texto)
-    cuenta, foco, nombrados, ambiguas = {}, set(), set(), []
-    seccion = None
-    for parte, es_cabeza in ((titular, True), (bajada, True), (texto, False)):
-        for oracion in oraciones(parte):
-            items = _menciones_de_oracion(oracion)
-            subtitulos = {b for _, bs, m, _, s in items if s and not m for b in bs}
-            if subtitulos and not es_cabeza:
-                seccion = subtitulos
-            for encontrado, barrios, motivo, compara, subtitulo in items:
-                if motivo or zona == 'otro':
-                    motivo = motivo or 'la nota trata sobre otra ciudad o región'
-                    if (encontrado, motivo) not in ambiguas:
-                        ambiguas.append((encontrado, motivo))
-                    continue
-                for b in barrios:
-                    nombrados.add(b)
-                    if es_cabeza or subtitulo:
-                        foco.add(b)
-                    elif not compara and (seccion is None or b in seccion):
-                        cuenta[b] = cuenta.get(b, 0) + 1
+    estado = {'cuenta': {}, 'foco': set(), 'nombrados': set(), 'ambiguas': [], 'seccion': None}
+    partes = ((titular, True), (bajada, True), (texto, False))
+    for oracion, es_cabeza in [(oracion, es_cabeza) for parte, es_cabeza in partes for oracion in oraciones(parte)]:
+        _contar_oracion(estado, _menciones_de_oracion(oracion), es_cabeza, zona)
+    cuenta, foco, nombrados, ambiguas = estado['cuenta'], estado['foco'], estado['nombrados'], estado['ambiguas']
     # Si el titular ya nombra un barrio, otro barrio necesita más menciones propias para ser foco.
     minimo = 3 if any(m[2] and not m[3] for m in menciones(titular)) else 2
     principales = sorted(b for b in nombrados if b in foco or cuenta.get(b, 0) >= minimo)
@@ -357,11 +372,11 @@ def _limpiar_nombre(nombre, entre_comillas=False):
 
 
 def _nombre_local(oracion):
-    for regex in (NOMBRE_ENTRE_COMILLAS, NOMBRE_TRAS_LOCAL, NOMBRE_ANTES_VERBO):
-        for m in regex.finditer(oracion):
-            nombre = _limpiar_nombre(m.group(1), regex is NOMBRE_ENTRE_COMILLAS)
-            if nombre:
-                return nombre
+    regexes = (NOMBRE_ENTRE_COMILLAS, NOMBRE_TRAS_LOCAL, NOMBRE_ANTES_VERBO)
+    for regex, m in ((regex, m) for regex in regexes for m in regex.finditer(oracion)):
+        nombre = _limpiar_nombre(m.group(1), regex is NOMBRE_ENTRE_COMILLAS)
+        if nombre:
+            return nombre
     return None
 
 

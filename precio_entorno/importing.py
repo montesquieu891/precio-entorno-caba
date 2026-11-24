@@ -230,8 +230,7 @@ def parse_listings(content, filename, source, operation='venta'):
         listing['garages'] = get('garages', lambda x: number(
             x, minimum=GARAGES[0], maximum=GARAGES[1], whole=True), 'cocheras')
         listing['floor'] = get('floor', lambda x: number(x, minimum=FLOOR[0], maximum=FLOOR[1], whole=True), 'piso')
-        for column, (spanish, _) in TRAITS.items():
-            listing[column] = get(column, flag, spanish)
+        listing.update({column: get(column, flag, spanish) for column, (spanish, _) in TRAITS.items()})
         if listing['total_area_m2'] is not None and listing['covered_area'] is not None:
             if listing['total_area_m2'] < listing['covered_area']:
                 report.invalid['total_area_m2'] += 1

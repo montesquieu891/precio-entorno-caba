@@ -145,33 +145,40 @@ def collect(client, output, log, barrio, payload, cap):
     return raw, final.get('startedAt')
 
 
+def pilot_search(client, plan, output, log, search, seen, listings):
+    """Corre la búsqueda de un barrio y una corrida de detalle por candidato; devuelve las filas recibidas."""
+    barrio = BARRIOS[search['ubicacion']]
+    rows, _ = collect(client, output, log, barrio, search, plan['tope_busqueda_usd'])
+    candidates = {}
+    for row in rows:
+        link = listing_link(row.get('url'))
+        if link and link[0] not in seen:
+            candidates.setdefault(*link)
+    if not candidates:
+        raise RuntimeError(f'La búsqueda de {barrio} no devolvió enlaces válidos. Revisá el log en Apify Console.')
+    received = 0
+    for listing_id, url in list(candidates.items())[:plan['candidatos_por_barrio']]:
+        seen.add(listing_id)
+        payload = dict(plan['detalle'], url=url)
+        rows, captured_at = collect(client, output, log, barrio, payload, plan['tope_detalle_usd'])
+        if len(rows) > 1:
+            raise RuntimeError('La corrida individual devolvió más de una fila.')
+        received += len(rows)
+        if rows:
+            listing = adapt_row(rows[0], barrio, (listing_id, url), captured_at)
+            if listing:
+                listings.append(listing)
+        write_json(output / 'avisos.json', listings)
+    return received
+
+
 def run_pilot(client, plan, output):
     output.mkdir(exist_ok=False)
     log, listings = [], []
     seen = set()
     received = 0
     for search in plan['busquedas']:
-        barrio = BARRIOS[search['ubicacion']]
-        rows, _ = collect(client, output, log, barrio, search, plan['tope_busqueda_usd'])
-        candidates = {}
-        for row in rows:
-            link = listing_link(row.get('url'))
-            if link and link[0] not in seen:
-                candidates.setdefault(*link)
-        if not candidates:
-            raise RuntimeError(f'La búsqueda de {barrio} no devolvió enlaces válidos. Revisá el log en Apify Console.')
-        for listing_id, url in list(candidates.items())[:plan['candidatos_por_barrio']]:
-            seen.add(listing_id)
-            payload = dict(plan['detalle'], url=url)
-            rows, captured_at = collect(client, output, log, barrio, payload, plan['tope_detalle_usd'])
-            if len(rows) > 1:
-                raise RuntimeError('La corrida individual devolvió más de una fila.')
-            received += len(rows)
-            if rows:
-                listing = adapt_row(rows[0], barrio, (listing_id, url), captured_at)
-                if listing:
-                    listings.append(listing)
-            write_json(output / 'avisos.json', listings)
+        received += pilot_search(client, plan, output, log, search, seen, listings)
     stats = batch_stats(listings, received)
     write_json(output / 'resumen.json', stats)
     return stats

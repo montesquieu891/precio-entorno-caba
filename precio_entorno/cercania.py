@@ -89,18 +89,22 @@ def cercanos(origenes, capa):
     claves, grupo = np.unique(celdas, axis=0, return_inverse=True)
     for g, (cx, cy) in enumerate(claves):
         miembros = np.flatnonzero(grupo.ravel() == g)
-        k = 1
-        while True:
-            if k * CELDA_M > BUSQUEDA_MAX_M:
-                candidatos = np.arange(len(capa))
-            else:
-                candidatos = capa.alrededor(int(cx), int(cy), k)
-            d, i = _todos_contra_todos(origenes[miembros], capa.xy[candidatos])
-            if k * CELDA_M > BUSQUEDA_MAX_M or (len(candidatos) and np.all(d <= k * CELDA_M)):
-                mejor[miembros], indice[miembros] = d, np.where(i >= 0, candidatos[np.maximum(i, 0)], -1)
-                break
-            k *= 2
+        mejor[miembros], indice[miembros] = _cercanos_de_celda(origenes[miembros], capa, int(cx), int(cy))
     return mejor, indice
+
+
+def _cercanos_de_celda(origenes, capa, cx, cy):
+    """Distancia mínima e índice para los orígenes de una celda, ampliando la búsqueda de a k = 1, 2, 4…"""
+    k = 1
+    while k * CELDA_M <= BUSQUEDA_MAX_M:
+        candidatos = capa.alrededor(cx, cy, k)
+        d, i = _todos_contra_todos(origenes, capa.xy[candidatos])
+        if len(candidatos) and np.all(d <= k * CELDA_M):
+            return d, np.where(i >= 0, candidatos[np.maximum(i, 0)], -1)
+        k *= 2
+    candidatos = np.arange(len(capa))
+    d, i = _todos_contra_todos(origenes, capa.xy[candidatos])
+    return d, np.where(i >= 0, candidatos[np.maximum(i, 0)], -1)
 
 
 def anillos(geometria):
@@ -118,19 +122,21 @@ def anillos(geometria):
 
 def bordes(coleccion, paso=PASO_M):
     """Puntos del borde de cada polígono, cada `paso` metros como máximo, en metros planos."""
-    salida = []
-    for feature in coleccion.get('features', []):
-        for ring in anillos(feature.get('geometry') or {'type': None}):
-            xy = metros(*np.asarray(ring, float)[:, :2].T)
-            if len(xy) < 2:
-                salida.append(xy)
-                continue
-            a, delta = xy[:-1], np.diff(xy, axis=0)
-            partes = np.maximum(1, np.ceil(np.hypot(delta[:, 0], delta[:, 1]) / paso)).astype(int)
-            tramo = np.repeat(np.arange(len(a)), partes)
-            t = (np.arange(partes.sum()) - np.repeat(np.cumsum(partes) - partes, partes)) / partes[tramo]
-            salida += [a[tramo] + t[:, None] * delta[tramo], xy[-1:]]
+    rings = [ring for feature in coleccion.get('features', []) for ring in anillos(feature.get('geometry') or {'type': None})]
+    salida = [parte for ring in rings for parte in _muestrear(ring, paso)]
     return np.vstack(salida) if salida else np.zeros((0, 2))
+
+
+def _muestrear(ring, paso):
+    """Puntos de una línea cada `paso` metros como máximo, en metros planos."""
+    xy = metros(*np.asarray(ring, float)[:, :2].T)
+    if len(xy) < 2:
+        return [xy]
+    a, delta = xy[:-1], np.diff(xy, axis=0)
+    partes = np.maximum(1, np.ceil(np.hypot(delta[:, 0], delta[:, 1]) / paso)).astype(int)
+    tramo = np.repeat(np.arange(len(a)), partes)
+    t = (np.arange(partes.sum()) - np.repeat(np.cumsum(partes) - partes, partes)) / partes[tramo]
+    return [a[tramo] + t[:, None] * delta[tramo], xy[-1:]]
 
 
 class Cercania:
@@ -224,8 +230,12 @@ class Cercania:
         if 'ruido' in capas:
             # La celda que contiene el punto: el centro más cercano a no más de media celda en cada eje.
             for periodo, (grilla, valores) in self.ruido.items():
-                _, idx = cercanos(origen, grilla)
-                for i, j in enumerate(idx):
-                    dentro = j >= 0 and np.all(np.abs(grilla.xy[j] - origen[i]) <= self.celda_m / 2 + 1)
-                    salida[i][f'ruido_{periodo}'] = {'dba': valores[j] if dentro else None}
+                self._poner_ruido(salida, origen, f'ruido_{periodo}', grilla, valores)
         return salida
+
+    def _poner_ruido(self, salida, origen, clave, grilla, valores):
+        """Nivel de ruido de la celda que contiene cada origen, o None si cae fuera de la grilla."""
+        _, idx = cercanos(origen, grilla)
+        for i, j in enumerate(idx):
+            dentro = j >= 0 and np.all(np.abs(grilla.xy[j] - origen[i]) <= self.celda_m / 2 + 1)
+            salida[i][clave] = {'dba': valores[j] if dentro else None}

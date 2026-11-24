@@ -53,11 +53,10 @@ def normalize(text):
 
 
 def mentions(text, patterns):
-    for pattern in patterns:
-        for match in pattern.finditer(text):
-            before = text[max(0, match.start() - 30):match.start()]
-            if not NEGATION.search(before) or CON_O_SIN.search(before):
-                return True
+    for match in (m for pattern in patterns for m in pattern.finditer(text)):
+        before = text[max(0, match.start() - 30):match.start()]
+        if not NEGATION.search(before) or CON_O_SIN.search(before):
+            return True
     return False
 
 

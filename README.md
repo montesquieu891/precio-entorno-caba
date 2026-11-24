@@ -581,3 +581,9 @@ Las pruebas cubren la importación, las alertas, el pipeline de Analytics y las 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
+
+### Lectura con PatternTree
+
+[PatternTree](https://github.com/carcruz97/PatternTree) clasifica cada línea de código por sus imports y estima la complejidad contando bucles anidados. Ninguna función del repositorio tiene un bucle dentro de otro: cuando un recorrido necesita dos niveles, el de adentro es una función propia con nombre. Un resultado necesita aclaración:
+
+- **Llamadas a Apify.** [precio_entorno/apify_client.py](precio_entorno/apify_client.py) es un cliente propio de la API REST de Apify escrito con `urllib` de la librería estándar. PatternTree solo reconoce como SDK + API los paquetes `apify`, `apify_client`, `requests`, `httpx`, `aiohttp` y `fastapi`, así que esas llamadas figuran como lógica. El uso del SDK se ve en [precio_entorno/actor_main.py](precio_entorno/actor_main.py) y [precio_entorno/analytics/main.py](precio_entorno/analytics/main.py) (`from apify import Actor`), y los endpoints en [precio_entorno/api.py](precio_entorno/api.py).

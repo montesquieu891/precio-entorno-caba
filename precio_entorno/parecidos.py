@@ -98,10 +98,15 @@ def escalas(tabla):
         con_dato = {n: transformar(v[clave]) for n, v in tabla.items() if v.get(clave) is not None}
         if not con_dato:
             continue
-        bajo, alto = min(con_dato.values()), max(con_dato.values())
-        for nombre, valor in con_dato.items():
-            salida[nombre][clave] = (valor - bajo) / (alto - bajo) if alto > bajo else 0.0
+        poner_escala(salida, clave, con_dato)
     return salida
+
+
+def poner_escala(salida, clave, con_dato):
+    """Lleva los valores de una capa a 0–1 entre el mínimo y el máximo; 0 si todos son iguales."""
+    bajo, alto = min(con_dato.values()), max(con_dato.values())
+    for nombre, valor in con_dato.items():
+        salida[nombre][clave] = (valor - bajo) / (alto - bajo) if alto > bajo else 0.0
 
 
 def parecidos(barrio, filas, prefs=(), nivel='primario', cantidad=SUGERIDOS):

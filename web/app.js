@@ -217,21 +217,29 @@ function metrosABarrio(lon, lat, geometria) {
     : geometria?.type === 'MultiPolygon' ? geometria.coordinates : [];
   let dentro = false;
   let minimo = Infinity;
-  for (const anillos of poligonos) {
-    for (const anillo of anillos) {
-      for (let i = 0, j = anillo.length - 1; i < anillo.length; j = i, i += 1) {
-        const [x1, y1] = anillo[i];
-        const [x2, y2] = anillo[j];
-        if ((y1 > lat) !== (y2 > lat) && lon < ((x2 - x1) * (lat - y1)) / (y2 - y1) + x1) dentro = !dentro;
-        const ax = (x1 - lon) * M_LON; const ay = (y1 - lat) * M_LAT;
-        const bx = (x2 - lon) * M_LON; const by = (y2 - lat) * M_LAT;
-        const dx = bx - ax; const dy = by - ay;
-        const t = dx || dy ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / (dx * dx + dy * dy))) : 0;
-        minimo = Math.min(minimo, Math.hypot(ax + t * dx, ay + t * dy));
-      }
-    }
+  for (const anillo of poligonos.flat(1)) {
+    const borde = bordeDeAnillo(lon, lat, anillo);
+    if (borde.cruza) dentro = !dentro;
+    minimo = Math.min(minimo, borde.minimo);
   }
   return poligonos.length ? (dentro ? 0 : minimo) : null;
+}
+
+// Para un anillo: si el rayo desde el punto lo cruza un número impar de veces y la distancia a su lado más cercano.
+function bordeDeAnillo(lon, lat, anillo) {
+  let cruza = false;
+  let minimo = Infinity;
+  for (let i = 0, j = anillo.length - 1; i < anillo.length; j = i, i += 1) {
+    const [x1, y1] = anillo[i];
+    const [x2, y2] = anillo[j];
+    if ((y1 > lat) !== (y2 > lat) && lon < ((x2 - x1) * (lat - y1)) / (y2 - y1) + x1) cruza = !cruza;
+    const ax = (x1 - lon) * M_LON; const ay = (y1 - lat) * M_LAT;
+    const bx = (x2 - lon) * M_LON; const by = (y2 - lat) * M_LAT;
+    const dx = bx - ax; const dy = by - ay;
+    const t = dx || dy ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / (dx * dx + dy * dy))) : 0;
+    minimo = Math.min(minimo, Math.hypot(ax + t * dx, ay + t * dy));
+  }
+  return { cruza, minimo };
 }
 
 const lugarActivo = () => (EXPLORADOR && estado.necesidades.has('lugar_fijo') && estado.lugarFijo) || null;
@@ -2253,6 +2261,9 @@ function muestra(color, etiqueta) {
   return `<li><span class="chip-muestra" style="background:${color}"></span>${esc(etiqueta)}</li>`;
 }
 
+const muestraLinea = (linea) => muestra(SUBTE[linea] || '#55626B', `Línea ${linea}`);
+const muestraRuido = ([v, color]) => muestra(color, v === 80 ? '80 dBA o más' : `${v} a ${v + 5} dBA`);
+
 function renderLeyenda() {
   const leyenda = $('#leyenda');
   if (!estado.seleccionado && !estado.barriosCargados) {
@@ -2328,7 +2339,7 @@ function renderLeyenda() {
     let items = [];
     if (c.clave === 'subte') {
       const lineas = [...new Set((estado.capasDatos[claveCapa('subte')]?.features || []).map((f) => f.properties.line))].sort();
-      items = lineas.map((l) => muestra(SUBTE[l] || '#55626B', `Línea ${l}`));
+      items = lineas.map(muestraLinea);
       items.push(`<li><span class="chip-muestra chip-ascensor"></span>Con ascensor informado</li>`);
     } else if (c.clave === 'verdes') items = [muestra(COLOR.verdes, 'Plaza o parque')];
     else if (c.clave === 'escuelas') items = [muestra(COLOR.escuela, `Escuela de nivel ${estado.nivel}`)];
@@ -2366,7 +2377,7 @@ function renderLeyenda() {
     else if (c.clave === 'riesgo') items = [muestra(COLOR.riesgo, 'Área de prevención')];
     else if (c.clave === 'ruido') {
       const umbral = estado.ruido === 'diurno' ? 70 : 65;
-      items = RUIDO.filter(([v]) => v >= umbral).map(([v, color]) => muestra(color, v === 80 ? '80 dBA o más' : `${v} a ${v + 5} dBA`));
+      items = RUIDO.filter(([v]) => v >= umbral).map(muestraRuido);
       items.push(`<li class="leyenda-nota">Solo se marcan las calles del barrio con ${umbral} dBA o más.</li>`);
     } else if (c.clave === 'delitos') {
       const d = estado.delitosDatos;
@@ -2543,14 +2554,18 @@ function recargar() {
 
 /* Barra de filtros */
 
+// Marca la opción elegida de un grupo de botones de radio y deja solo esa en el orden de tabulación.
+function marcarOpcion(atributo, valor) {
+  document.querySelectorAll(`[data-${atributo}]`).forEach((b) => {
+    const activo = b.dataset[atributo] === valor;
+    b.setAttribute('aria-checked', activo);
+    b.tabIndex = activo ? 0 : -1;
+  });
+}
+
 function sincronizarControles() {
-  for (const [atributo, valor] of [['operacion', estado.operacion], ['modo', estado.modo]]) {
-    document.querySelectorAll(`[data-${atributo}]`).forEach((b) => {
-      const activo = b.dataset[atributo] === valor;
-      b.setAttribute('aria-checked', activo);
-      b.tabIndex = activo ? 0 : -1;
-    });
-  }
+  marcarOpcion('operacion', estado.operacion);
+  marcarOpcion('modo', estado.modo);
   const alquiler = estado.operacion === 'alquiler';
   $('#moneda').hidden = !alquiler;
   $('#moneda-fija').hidden = alquiler;

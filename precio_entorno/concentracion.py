@@ -133,6 +133,12 @@ def circle(lon, lat, radius):
     return {'type': 'Polygon', 'coordinates': [ring + [ring[0]]]}
 
 
+def radius_summary(totals, year, radius, kind):
+    """Hechos de un año, radio y tipo, separados por franja horaria."""
+    values = {b: totals[year, radius, kind, b] for b in ('diurno', 'nocturno', 'sin_dato')}
+    return {'anio': year, 'radio_m': radius, 'tipo': kind, **values, 'total': sum(values.values())}
+
+
 class CrimeIndex:
     def __init__(self, paths):
         self.events, self.sources = [], []
@@ -140,59 +146,62 @@ class CrimeIndex:
         self.quality = Counter()
         seen = set()
         for path in paths:
-            path = Path(path)
-            content = path.read_bytes()
-            headers, rows = csv_rows(content)
-            required = ({'id_mapa'}, {'fecha'}, {'barrio'}, {'tipo', 'tipo_delito'},
-                        {'cantidad', 'cantidad_registrada'}, {'franja', 'franja_horaria'},
-                        {'latitud', 'lat'}, {'longitud', 'long', 'lon'})
-            if any(not names.intersection(headers) for names in required):
-                raise ValueError(f'{path.name}: faltan columnas del Mapa del Delito.')
-            self.sources.append({'archivo': path.name, 'sha256': sha256(content).hexdigest(),
-                                 'url': SOURCE_URL})
-            names = {name: key(name) for name in rows[0]} if rows else {}
-            for raw in rows:
-                self.quality['filas_leidas'] += 1
-                if None in raw:
-                    self.quality['descartadas'] += 1
-                    continue
-                row = {names[k]: v for k, v in raw.items()}
-                try:
-                    day = crime_date(value(row, 'fecha'))
-                    year, month = int(day[:4]), int(day[5:7])
-                    identifier = value(row, 'id_mapa')
-                    kind = value(row, 'tipo', 'tipo_delito')
-                    count = number(value(row, 'cantidad', 'cantidad_registrada'), whole=True)
-                    if not identifier or not kind or key(value(row, 'barrio')) not in BARRIOS:
-                        raise ValueError
-                except (ValueError, TypeError):
-                    self.quality['descartadas'] += 1
-                    continue
-                identity = year, identifier.strip()
-                if identity in seen:
-                    self.quality['duplicadas'] += 1
-                    continue
-                seen.add(identity)
-                self.months[year].add(month)
-                if key(kind) not in ('robo', 'hurto'):
-                    continue
-                try:
-                    lon = number(value(row, 'longitud', 'long', 'lon'), minimum=-58.54, maximum=-58.32)
-                    lat = number(value(row, 'latitud', 'lat'), minimum=-34.73, maximum=-34.52)
-                except (ValueError, TypeError):
-                    self.quality['robos_hurtos_sin_pin'] += count
-                    continue
-                try:
-                    hour = number(value(row, 'franja', 'franja_horaria'), maximum=23, whole=True)
-                    band = 'nocturno' if hour >= 20 or hour < 6 else 'diurno'
-                except (ValueError, TypeError):
-                    band = 'sin_dato'
-                    self.quality['robos_hurtos_sin_horario'] += count
-                self.events.append(Event(year, month, key(kind), band, count, lon, lat))
+            self._load(Path(path), seen)
         self.years = sorted(self.months)
         if not self.years:
             raise ValueError('No hay registros válidos con fecha y barrio en las fuentes locales.')
         self._grids = {}
+
+    def _load(self, path, seen):
+        """Agrega los robos y hurtos de un archivo del Mapa del Delito y anota la calidad de sus filas."""
+        content = path.read_bytes()
+        headers, rows = csv_rows(content)
+        required = ({'id_mapa'}, {'fecha'}, {'barrio'}, {'tipo', 'tipo_delito'},
+                    {'cantidad', 'cantidad_registrada'}, {'franja', 'franja_horaria'},
+                    {'latitud', 'lat'}, {'longitud', 'long', 'lon'})
+        if any(not names.intersection(headers) for names in required):
+            raise ValueError(f'{path.name}: faltan columnas del Mapa del Delito.')
+        self.sources.append({'archivo': path.name, 'sha256': sha256(content).hexdigest(),
+                             'url': SOURCE_URL})
+        names = {name: key(name) for name in rows[0]} if rows else {}
+        for raw in rows:
+            self.quality['filas_leidas'] += 1
+            if None in raw:
+                self.quality['descartadas'] += 1
+                continue
+            row = {names[k]: v for k, v in raw.items()}
+            try:
+                day = crime_date(value(row, 'fecha'))
+                year, month = int(day[:4]), int(day[5:7])
+                identifier = value(row, 'id_mapa')
+                kind = value(row, 'tipo', 'tipo_delito')
+                count = number(value(row, 'cantidad', 'cantidad_registrada'), whole=True)
+                if not identifier or not kind or key(value(row, 'barrio')) not in BARRIOS:
+                    raise ValueError
+            except (ValueError, TypeError):
+                self.quality['descartadas'] += 1
+                continue
+            identity = year, identifier.strip()
+            if identity in seen:
+                self.quality['duplicadas'] += 1
+                continue
+            seen.add(identity)
+            self.months[year].add(month)
+            if key(kind) not in ('robo', 'hurto'):
+                continue
+            try:
+                lon = number(value(row, 'longitud', 'long', 'lon'), minimum=-58.54, maximum=-58.32)
+                lat = number(value(row, 'latitud', 'lat'), minimum=-34.73, maximum=-34.52)
+            except (ValueError, TypeError):
+                self.quality['robos_hurtos_sin_pin'] += count
+                continue
+            try:
+                hour = number(value(row, 'franja', 'franja_horaria'), maximum=23, whole=True)
+                band = 'nocturno' if hour >= 20 or hour < 6 else 'diurno'
+            except (ValueError, TypeError):
+                band = 'sin_dato'
+                self.quality['robos_hurtos_sin_horario'] += count
+            self.events.append(Event(year, month, key(kind), band, count, lon, lat))
 
     def grids(self, kind='todos', band='todas'):
         signature = kind, band
@@ -239,15 +248,9 @@ class CrimeIndex:
             totals = Counter()
             for event in self.events:
                 distance = distance_m(listing['longitude'], listing['latitude'], event.lon, event.lat)
-                for r in RADIOS:
-                    if distance <= r:
-                        totals[event.year, r, event.kind, event.band] += event.count
-            for y in self.years:
-                for r in RADIOS:
-                    for k in ('robo', 'hurto'):
-                        values = {b: totals[y, r, k, b] for b in ('diurno', 'nocturno', 'sin_dato')}
-                        summaries.append({'anio': y, 'radio_m': r, 'tipo': k, **values,
-                                          'total': sum(values.values())})
+                totals.update({(event.year, r, event.kind, event.band): event.count for r in RADIOS if distance <= r})
+            combinations = [(y, r, k) for y in self.years for r in RADIOS for k in ('robo', 'hurto')]
+            summaries = [radius_summary(totals, y, r, k) for y, r, k in combinations]
         return {'disponible': True, 'anios': self.years, 'anio': year, 'radio_m': radius,
                 'tipo': kind, 'franja': band, 'celda_m': CELL_M, 'fuentes': self.sources,
                 'unidad': 'Hechos registrados; celdas de 200 m y radios acumulativos en línea recta.',

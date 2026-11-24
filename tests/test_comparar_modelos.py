@@ -18,13 +18,13 @@ def synthetic(n_per_barrio=60, seed=0):
     """Precio por m² que baja con la superficie dentro de cada barrio (señal lineal)."""
     rng = np.random.default_rng(seed)
     rows = []
-    for b, (barrio, base) in enumerate(BARRIOS.items()):
-        for i in range(n_per_barrio):
-            area = rng.uniform(30, 120)
-            rows.append({'id': f'ficticio:{b}-{i}', 'neighborhood': barrio, 'agency': 'ficticio',
-                         'rooms': int(area // 25) + 1, 'covered_area': area, 'total_area_m2': area * 1.1,
-                         'latitude': -34.6 + rng.normal(0, 0.01), 'longitude': -58.43 + rng.normal(0, 0.01),
-                         'precio_m2': base - 8 * area + rng.normal(0, 40)})
+    cases = [(b, barrio, base, i) for b, (barrio, base) in enumerate(BARRIOS.items()) for i in range(n_per_barrio)]
+    for b, barrio, base, i in cases:
+        area = rng.uniform(30, 120)
+        rows.append({'id': f'ficticio:{b}-{i}', 'neighborhood': barrio, 'agency': 'ficticio',
+                     'rooms': int(area // 25) + 1, 'covered_area': area, 'total_area_m2': area * 1.1,
+                     'latitude': -34.6 + rng.normal(0, 0.01), 'longitude': -58.43 + rng.normal(0, 0.01),
+                     'precio_m2': base - 8 * area + rng.normal(0, 40)})
     df = pd.DataFrame(rows)
     df['price'] = df['precio_m2'] * df['covered_area']
     df['grupo'] = df['id']

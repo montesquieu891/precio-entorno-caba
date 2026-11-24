@@ -32,6 +32,13 @@ def write_csv(name, rows, fields):
     return path
 
 
+def take_round(queues, selected, limit):
+    """Una ronda: toma el siguiente aviso de cada barrio, en orden alfabético, hasta llegar al límite."""
+    for queue in queues.values():
+        if queue and len(selected) < limit:
+            selected.append(queue.popleft())
+
+
 def main():
     with zipfile.ZipFile(BUNDLE) as bundle:
         sale = list(csv.DictReader(io.StringIO(bundle.read('venta.csv').decode('utf-8-sig'))))
@@ -49,9 +56,7 @@ def main():
             ('entrega-12-11-v1|' + row['id']).encode()).hexdigest()))
     selected = []
     while len(selected) < 1800 and any(queues.values()):
-        for queue in queues.values():
-            if queue and len(selected) < 1800:
-                selected.append(queue.popleft())
+        take_round(queues, selected, 1800)
     if len(selected) != 1800 or len({row['grupo'] or row['id'] for row in selected}) != 1800:
         raise ValueError('Se requieren 1.800 grupos distintos para la muestra de venta.')
     keys = {(row['barrio'], row['mes']) for row in crimes}

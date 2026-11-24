@@ -26,15 +26,20 @@ def contraste(foreground, background):
     return (b + 0.05) / (a + 0.05)
 
 
+def borrar_busquedas(context, url, mode):
+    """Borra las búsquedas de compra guardadas en un modo, para empezar el recorrido limpio."""
+    saved = context.request.get(f"{url}/api/busquedas?modo={mode}&operacion=venta").json()
+    for search in saved["busquedas"]:
+        context.request.delete(f"{url}/api/busquedas/{search['id']}?modo={mode}&operacion=venta")
+
+
 def verificar(browser, url, output, name, width, height):
     context = browser.new_context(viewport={"width": width, "height": height},
                                   device_scale_factor=2 if name == "zoom200" else 1,
                                   reduced_motion="no-preference" if name == "escritorio" else "reduce")
     context.add_init_script("localStorage.setItem('precio-entorno-filtros', JSON.stringify({modo:'demo'}))")
     for mode in ["demo", "real"]:
-        saved = context.request.get(f"{url}/api/busquedas?modo={mode}&operacion=venta").json()
-        for search in saved["busquedas"]:
-            context.request.delete(f"{url}/api/busquedas/{search['id']}?modo={mode}&operacion=venta")
+        borrar_busquedas(context, url, mode)
     page = context.new_page()
     page.set_default_timeout(12000)
     errors = []

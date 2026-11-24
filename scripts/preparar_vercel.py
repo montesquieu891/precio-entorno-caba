@@ -77,12 +77,11 @@ def export_code(out):
 
 
 def copy_data(out):
-    for folder, pattern in DATA.items():
-        for path in (ROOT / folder).glob(pattern):
-            if path.is_file():
-                target = out / path.relative_to(ROOT)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(path, target)
+    paths = [path for folder, pattern in DATA.items() for path in (ROOT / folder).glob(pattern) if path.is_file()]
+    for path in paths:
+        target = out / path.relative_to(ROOT)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, target)
     (out / 'data/local').mkdir(parents=True, exist_ok=True)
     for name in BASES:
         source = ROOT / 'data/local' / name

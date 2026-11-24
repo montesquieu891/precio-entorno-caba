@@ -134,6 +134,12 @@ def fit_predict(name, train, test, numeric, categorical, features, seed):
     return model.predict(train[numeric + categorical]), model.predict(test[numeric + categorical])
 
 
+def fold_mae(name, train, test, numeric, categorical, features, seed):
+    """MAE de un modelo entrenado en un pliegue y evaluado en el resto."""
+    _, pred = fit_predict(name, train, test, numeric, categorical, features, seed)
+    return metrics(test['precio_m2'].to_numpy(), pred)['mae']
+
+
 def compare(df, seed=42, folds=5, control_agency=False):
     """MAE, RMSE y R² de los seis modelos y de los comparables en la misma partición."""
     numeric, categorical = feature_sets(df, control_agency)
@@ -159,10 +165,7 @@ def compare(df, seed=42, folds=5, control_agency=False):
         start = time.perf_counter()
         pred_train, pred_test = fit_predict(name, train, test, numeric, categorical, features, seed)
         seconds = time.perf_counter() - start
-        cv = []
-        for a, b in splits:
-            _, pred = fit_predict(name, df.iloc[a], df.iloc[b], numeric, categorical, features, seed)
-            cv.append(metrics(df.iloc[b]['precio_m2'].to_numpy(), pred)['mae'])
+        cv = [fold_mae(name, df.iloc[a], df.iloc[b], numeric, categorical, features, seed) for a, b in splits]
         rows.append({'modelo': name, 'familia': family, 'estimador': estimator,
                      'mae_entrenamiento': metrics(y_train, pred_train)['mae'],
                      **{f'{k}_prueba': v for k, v in metrics(y_test, pred_test).items()},

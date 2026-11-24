@@ -11,6 +11,28 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def public_outputs(cell):
+    """Salidas que se pueden publicar: sin widgets, sin tablas de avisos y sin rutas locales."""
+    visible = []
+    for output in cell.outputs:
+        data = output.get('data', {})
+        if 'application/vnd.jupyter.widget-view+json' in data:
+            continue
+        if cell.id in {'explorador', 'inferencia'} and output.output_type in {'display_data', 'execute_result'}:
+            continue
+        if output.output_type == 'stream':
+            output.text = re.sub(r'[A-Za-z]:[\\/][^\r\n]*', '[ruta local omitida]', output.text)
+        visible.append(output)
+    return visible
+
+
+def clean_cell(cell):
+    """Deja solo las salidas publicables y quita el estado de vista de la celda."""
+    cell.outputs = public_outputs(cell)
+    for key in ['collapsed', 'scrolled', 'jupyter']:
+        cell.metadata.pop(key, None)
+
+
 def publish(source, destination):
     notebook = nbformat.read(source, as_version=4)
     nbformat.validate(notebook)
@@ -26,19 +48,7 @@ def publish(source, destination):
 
     # Las tablas de avisos individuales se conservan solo en la entrega privada.
     for cell in code:
-        visible = []
-        for output in cell.outputs:
-            data = output.get('data', {})
-            if 'application/vnd.jupyter.widget-view+json' in data:
-                continue
-            if cell.id in {'explorador', 'inferencia'} and output.output_type in {'display_data', 'execute_result'}:
-                continue
-            if output.output_type == 'stream':
-                output.text = re.sub(r'[A-Za-z]:[\\/][^\r\n]*', '[ruta local omitida]', output.text)
-            visible.append(output)
-        cell.outputs = visible
-        for key in ['collapsed', 'scrolled', 'jupyter']:
-            cell.metadata.pop(key, None)
+        clean_cell(cell)
     notebook.metadata.pop('widgets', None)
 
     notice = nbformat.v4.new_markdown_cell("""## Lectura de resultados sin ejecutar

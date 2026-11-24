@@ -88,14 +88,18 @@ def by_rooms(df):
     return table
 
 
+def offer_row(budget, row):
+    """Fila del cuadro de oferta para un barrio y un presupuesto."""
+    return {'presupuesto_usd': budget, 'barrio': row['Barrio'], 'coincidencias': row['Coincidencias'],
+            'precio_mediano_coincidencias_usd': row['Precio mediano de coincidencias (USD)']}
+
+
 def offer(df, rooms=2, min_area=40):
     """Coincidencias por barrio al variar el presupuesto, con la lógica de la app."""
     items = df.rename(columns={'covered_area': 'covered_area'}).to_dict('records')
     rows = []
     for budget in BUDGETS:
-        for row in compare_neighborhoods(items, budget, min_area, rooms):
-            rows.append({'presupuesto_usd': budget, 'barrio': row['Barrio'], 'coincidencias': row['Coincidencias'],
-                         'precio_mediano_coincidencias_usd': row['Precio mediano de coincidencias (USD)']})
+        rows += [offer_row(budget, row) for row in compare_neighborhoods(items, budget, min_area, rooms)]
     return pd.DataFrame(rows)
 
 

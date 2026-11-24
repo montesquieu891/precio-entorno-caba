@@ -502,11 +502,11 @@ def mob_pages(client):
     listados por barrio, ambientes y filtros, y se deduplica por ID.
     """
     paths = []
-    for sitemap in MOB_SITEMAPS:
-        for url in re.findall(r'<loc>([^<]+)</loc>', client.get(sitemap)):
-            path = urlsplit(url).path
-            if '/capital-federal' in path and path.startswith('/alquileres') and path != MOB_ROOT:
-                paths.append(path)
+    urls = [url for sitemap in MOB_SITEMAPS for url in re.findall(r'<loc>([^<]+)</loc>', client.get(sitemap))]
+    for url in urls:
+        path = urlsplit(url).path
+        if '/capital-federal' in path and path.startswith('/alquileres') and path != MOB_ROOT:
+            paths.append(path)
     paths = sorted(set(paths), key=lambda p: ('/departamentos' not in p, p.count('/'), p))
     return [MOB_ROOT] + paths
 
@@ -568,6 +568,22 @@ def clarin_features(card):
     return [clean(f) for f in re.findall(r'<span>(.*?)</span>', block.group(1), re.S)] if block else []
 
 
+def clarin_sizes(card):
+    """Superficie cubierta, superficie total y ambientes de una tarjeta de Clarín."""
+    covered = total = rooms = None
+    for feature in clarin_features(card):
+        low = feature.lower()
+        if (found := re.match(r'([\d.,]+)\s*m²\s*cub', low)):
+            covered = local_number(found.group(1))
+        elif (found := re.match(r'([\d.,]+)\s*m²\s*tot', low)):
+            total = local_number(found.group(1))
+        elif (found := re.match(r'(\d+)\s*amb', low)):
+            rooms = int(found.group(1))
+        elif low.startswith('monoam'):
+            rooms = 1
+    return covered, total, rooms
+
+
 def parse_clarin(page, captured_at, operation='venta', fallback=None):
     """Lee las tarjetas de un listado. Solo toma campos del contrato, nunca datos del anunciante.
 
@@ -594,17 +610,7 @@ def parse_clarin(page, captured_at, operation='venta', fallback=None):
         name = barrio(zone) or fallback
         if not name:
             skipped[f'clarin:{local_id}'] = 'barrio_ambiguo'
-        covered = total = rooms = None
-        for feature in clarin_features(card):
-            low = feature.lower()
-            if (found := re.match(r'([\d.,]+)\s*m²\s*cub', low)):
-                covered = local_number(found.group(1))
-            elif (found := re.match(r'([\d.,]+)\s*m²\s*tot', low)):
-                total = local_number(found.group(1))
-            elif (found := re.match(r'(\d+)\s*amb', low)):
-                rooms = int(found.group(1))
-            elif low.startswith('monoam'):
-                rooms = 1
+        covered, total, rooms = clarin_sizes(card)
         out.append(record(
             'clarin', local_id, CLARIN_BASE + href.group(1), captured_at, operation,
             price=local_number(price_match.group(2)) if price_match else None, currency=currency,
