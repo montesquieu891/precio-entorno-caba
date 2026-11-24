@@ -396,6 +396,18 @@ def create_app(demo_path=None, real_path=None, entorno_dir=None, raw_dir=None, w
             raise HTTPException(503, 'Las capas no se generaron. Ejecutá python -m precio_entorno.entorno.')
         return data['barrios']
 
+    @app.get('/api/hospitales')
+    def hospitals():
+        """Hospitales de toda la ciudad para elegir un lugar fijo. Se manda la lista completa: la elección de la
+        persona (que puede revelar un tratamiento) queda en su navegador y no viaja en ningún pedido."""
+        data = layers()
+        if data is None:
+            raise HTTPException(503, 'Las capas no se generaron. Ejecutá python -m precio_entorno.entorno.')
+        rows = [{'nombre': h['name'], 'barrio': h.get('barrio'), 'lon': h['lon'], 'lat': h['lat'],
+                 'especialidad': (h.get('tooltip') or '').split(' · ', 1)[1] if ' · ' in (h.get('tooltip') or '') else None}
+                for h in data['puntos'].get('hospitales', []) if h.get('lon') is not None and h.get('lat') is not None]
+        return {'hospitales': sorted(rows, key=lambda r: r['nombre'])}
+
     @app.get('/api/mapa/capas')
     def map_layers(barrio: str, capas: list[str] = Query(default=[]), nivel: str = 'primario',
                    ruido: Literal['diurno', 'nocturno'] = 'diurno'):

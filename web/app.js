@@ -81,6 +81,13 @@ const NECESIDADES = [
       'Un ascensor no asegura llegar sin escalones. Antes de visitar, preguntale al anunciante: ¿hay escalones entre la '
         + 'vereda y el ascensor? ¿Cuánto miden la puerta del ascensor y la del baño? ¿Hay espacio para girar con una silla de ruedas?',
     ] },
+  { clave: 'lugar_fijo', nombre: 'Tengo que ir seguido a un lugar',
+    descripcion: 'Un hospital, un tratamiento, una escuela o el trabajo: distancia desde cada barrio y cada aviso.',
+    capas: [], columnas: ['lugar_fijo'],
+    advertencias: [
+      'La distancia al lugar fijo es en línea recta: no es un recorrido por calles ni un tiempo de viaje.',
+      'El lugar que elegís queda guardado solo en este navegador: Lüga no lo recibe.',
+    ] },
   { clave: 'familia', nombre: 'Escuelas y salud cerca', descripcion: 'Escuelas del nivel elegido, centros de salud y plazas.',
     capas: ['escuelas', 'salud', 'verdes'],
     columnas: ['escuela', 'cesac', 'hospital', 'plaza', 'ambientes', 'superficie', 'patio', 'balcon'], advertencias: [] },
@@ -165,6 +172,59 @@ function celdaAcceso(aviso) {
   return r.ascensor == null ? '<span class="fuente">Sin dato</span>' : '<span class="fuente">No lo menciona</span>';
 }
 
+/* Lugar fijo: un punto que la persona elige (hospital de la lista o marca en el mapa). Las distancias se calculan
+   acá, en línea recta y en metros planos, para que el lugar no viaje en ningún pedido al servidor. */
+const M_LAT = 111320;
+const M_LON = M_LAT * Math.cos((-34.62 * Math.PI) / 180);
+
+function metrosEntre(lon1, lat1, lon2, lat2) {
+  return Math.hypot((lon1 - lon2) * M_LON, (lat1 - lat2) * M_LAT);
+}
+
+// 0 si el punto cae dentro del barrio; si no, la distancia al borde más cercano.
+function metrosABarrio(lon, lat, geometria) {
+  const poligonos = geometria?.type === 'Polygon' ? [geometria.coordinates]
+    : geometria?.type === 'MultiPolygon' ? geometria.coordinates : [];
+  let dentro = false;
+  let minimo = Infinity;
+  for (const anillos of poligonos) {
+    for (const anillo of anillos) {
+      for (let i = 0, j = anillo.length - 1; i < anillo.length; j = i, i += 1) {
+        const [x1, y1] = anillo[i];
+        const [x2, y2] = anillo[j];
+        if ((y1 > lat) !== (y2 > lat) && lon < ((x2 - x1) * (lat - y1)) / (y2 - y1) + x1) dentro = !dentro;
+        const ax = (x1 - lon) * M_LON; const ay = (y1 - lat) * M_LAT;
+        const bx = (x2 - lon) * M_LON; const by = (y2 - lat) * M_LAT;
+        const dx = bx - ax; const dy = by - ay;
+        const t = dx || dy ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / (dx * dx + dy * dy))) : 0;
+        minimo = Math.min(minimo, Math.hypot(ax + t * dx, ay + t * dy));
+      }
+    }
+  }
+  return poligonos.length ? (dentro ? 0 : minimo) : null;
+}
+
+const lugarActivo = () => (EXPLORADOR && estado.necesidades.has('lugar_fijo') && estado.lugarFijo) || null;
+
+function metrosLugarBarrio(barrio) {
+  const lugar = lugarActivo();
+  const forma = lugar && estado.formas?.features.find((f) => f.properties.barrio === barrio);
+  return forma ? metrosABarrio(lugar.lon, lugar.lat, forma.geometry) : null;
+}
+
+function textoLugarBarrio(barrio) {
+  const m = metrosLugarBarrio(barrio);
+  if (m == null) return '';
+  return m === 0 ? 'Está en el barrio' : `A ${metrosTexto(Math.round(m / 10) * 10)} del borde`;
+}
+
+function celdaLugarFijo(aviso) {
+  const lugar = lugarActivo();
+  if (!lugar || !aviso.ubicacion || aviso.lat == null) return '<span class="fuente">Sin ubicación</span>';
+  const texto = metrosTexto(Math.round(metrosEntre(aviso.lon, aviso.lat, lugar.lon, lugar.lat) / 10) * 10);
+  return aviso.ubicacion === 'aproximada' ? `${texto} <span class="fuente">aprox.</span>` : texto;
+}
+
 function porMes(aviso) {
   if (aviso.expensas == null) return `${dinero(aviso.precio, aviso.moneda)} <span class="fuente">+ expensas sin informar</span>`;
   if (aviso.moneda === 'ARS') return dinero(aviso.precio + aviso.expensas, 'ARS');
@@ -179,6 +239,7 @@ function columnasExplorador() {
     .filter(([clave, def]) => columnas.includes(clave) && capas.includes(def.capa))
     .map(([, def]) => ({ titulo: def.titulo(), celda: (a) => celdaDistancia(def, a) }));
   if (columnas.includes('acceso')) extra.unshift({ titulo: 'Acceso según el aviso', celda: celdaAcceso });
+  if (columnas.includes('lugar_fijo') && lugarActivo()) extra.unshift({ titulo: 'A tu lugar fijo', celda: celdaLugarFijo });
   const rasgos = Object.keys(RASGOS_TEXTO).filter((k) => columnas.includes(k));
   if (rasgos.length) extra.push({ titulo: 'El texto menciona', celda: (a) => celdaRasgos(rasgos, a) });
   if (columnas.includes('expensas')) {
@@ -304,6 +365,12 @@ function leerGuardado() {
   try { return JSON.parse(localStorage.getItem('precio-entorno-filtros')) || {}; } catch { return {}; }
 }
 
+function lugarValido(l) {
+  const ok = l && typeof l.nombre === 'string' && Number.isFinite(l.lon) && Number.isFinite(l.lat)
+    && l.lon > -58.6 && l.lon < -58.3 && l.lat > -34.75 && l.lat < -34.5;
+  return ok ? { nombre: l.nombre.slice(0, 120), lon: l.lon, lat: l.lat } : null;
+}
+
 const guardado = leerGuardado();
 const estado = {
   modo: guardado.modo || 'real',
@@ -317,6 +384,10 @@ const estado = {
   prefs: new Set(guardado.prefs || ['subte', 'verdes']),
   necesidades: new Set(EXPLORADOR ? guardado.necesidades || [] : []),
   apagadas: new Set(EXPLORADOR ? guardado.apagadas || [] : []),
+  // { nombre, lon, lat } elegido por la persona. Solo en localStorage: no se manda en ningún pedido.
+  lugarFijo: EXPLORADOR ? lugarValido(guardado.lugarFijo) : null,
+  eligiendoLugar: false,
+  hospitales: null, // lista para elegir el lugar fijo; se pide una vez, completa
   nivel: guardado.nivel || 'primario',
   ruido: 'diurno',
   delitos: { anio: '', tipo: 'todos', franja: 'todas', radio: '500', inmueble: '' },
@@ -348,7 +419,7 @@ function guardar() {
   try {
     localStorage.setItem('precio-entorno-filtros', JSON.stringify(
       { modo, operacion, moneda, presupuesto, superficie, ambientes, ambientesOMas: estado.ambientesOMas, nivel, prefs: [...estado.prefs],
-        ...(EXPLORADOR ? { necesidades: [...estado.necesidades], apagadas: [...estado.apagadas] } : {}) }));
+        ...(EXPLORADOR ? { necesidades: [...estado.necesidades], apagadas: [...estado.apagadas], lugarFijo: estado.lugarFijo } : {}) }));
   } catch { /* Sin almacenamiento local: los filtros vuelven a los valores iniciales. */ }
 }
 
@@ -543,9 +614,13 @@ function actualizarComparador() {
 }
 
 function renderLista() {
+  const lugar = lugarActivo();
+  const orden = estado.ordenBarrios === 'lugar' && !lugar ? 'avisos' : estado.ordenBarrios;
+  const cercania = lugar ? Object.fromEntries(estado.barrios.map((b) => [b.barrio, metrosLugarBarrio(b.barrio) ?? Infinity])) : {};
   const con = estado.barrios.filter((b) => b.coincidencias > 0).sort((a, b) =>
-    (estado.ordenBarrios === 'precio' ? a.mediana - b.mediana
-      : estado.ordenBarrios === 'nombre' ? 0 : b.coincidencias - a.coincidencias) || a.barrio.localeCompare(b.barrio, 'es'));
+    (orden === 'precio' ? a.mediana - b.mediana
+      : orden === 'lugar' ? cercania[a.barrio] - cercania[b.barrio]
+        : orden === 'nombre' ? 0 : b.coincidencias - a.coincidencias) || a.barrio.localeCompare(b.barrio, 'es'));
   const sin = estado.barrios.filter((b) => !b.coincidencias);
   const total = estado.barrios.reduce((s, b) => s + b.avisos, 0);
   const encajan = con.reduce((s, b) => s + b.coincidencias, 0);
@@ -610,7 +685,7 @@ function renderLista() {
       <span class="fila-cuenta">${b.coincidencias} ${plural(b.coincidencias, 'aviso', 'avisos')}<small>de ${b.avisos}</small></span>
       <span class="fila-mediana">Mediana ${dinero(b.mediana, estado.moneda)}</span>
       <span></span>
-      <span class="fila-criterios">${preferenciasComparacion().map((p) => `<span><strong>${esc(p.nombre)}</strong><span>${esc(datoComparacion(p.clave, b.entorno))}</span></span>`).join('')}</span>
+      <span class="fila-criterios">${lugar && textoLugarBarrio(b.barrio) ? `<span><strong>Tu lugar fijo</strong><span>${esc(textoLugarBarrio(b.barrio))}</span></span>` : ''}${preferenciasComparacion().map((p) => `<span><strong>${esc(p.nombre)}</strong><span>${esc(datoComparacion(p.clave, b.entorno))}</span></span>`).join('')}</span>
       ${prensaFila(b.barrio)}
     </button><label class="elegir-comparacion"><input type="checkbox" data-comparar="${esc(b.barrio)}" aria-label="Comparar ${esc(b.barrio)}" aria-describedby="resumen-comparacion">Comparar ${esc(b.barrio)}</label></li>`).join('');
   const compactos = sin.map((b) => `<li><button type="button" data-barrio="${esc(b.barrio)}">${esc(b.barrio)} · ${b.avisos}</button></li>`).join('');
@@ -620,9 +695,10 @@ function renderLista() {
       <p class="comparador-preferencias">${preferenciasComparacion().length ? `Tus prioridades: ${esc(preferenciasComparacion().map((p) => p.nombre).join(' · '))}.` : 'Elegí qué te importa del entorno.'}
         <button class="boton-texto" type="button" data-abrir-importa>Cambiar</button></p>
       <label class="orden-barrios">Ordenar por <select id="orden-barrios">
-        <option value="avisos"${estado.ordenBarrios === 'avisos' ? ' selected' : ''}>Más avisos que encajan</option>
-        <option value="precio"${estado.ordenBarrios === 'precio' ? ' selected' : ''}>Menor mediana publicada</option>
-        <option value="nombre"${estado.ordenBarrios === 'nombre' ? ' selected' : ''}>Nombre del barrio</option>
+        <option value="avisos"${orden === 'avisos' ? ' selected' : ''}>Más avisos que encajan</option>
+        <option value="precio"${orden === 'precio' ? ' selected' : ''}>Menor mediana publicada</option>
+        <option value="nombre"${orden === 'nombre' ? ' selected' : ''}>Nombre del barrio</option>
+        ${lugar ? `<option value="lugar"${orden === 'lugar' ? ' selected' : ''}>Más cerca de tu lugar fijo</option>` : ''}
       </select></label>
       <p class="fuente" id="resumen-comparacion" role="status" aria-atomic="true"></p>
       <div class="comparador-acciones"><button class="boton-comparar" id="abrir-comparacion" type="button" disabled>Comparar (0/3)</button>
@@ -1417,7 +1493,7 @@ async function prepararMapa() {
   }
   const simbolo = mapa.getStyle().layers.find((capa) => capa.type === 'symbol')?.id;
   mapa.addSource('barrios', { type: 'geojson', data: formas, promoteId: 'barrio' });
-  for (const id of ['delitos', 'radios', 'inmueble', 'colectivo', ...CAPAS_MAPA.map((c) => c.clave), 'avisos']) {
+  for (const id of ['delitos', 'radios', 'inmueble', 'colectivo', 'lugar-fijo', ...CAPAS_MAPA.map((c) => c.clave), 'avisos']) {
     // Teselas hasta zoom 16 (por defecto, 18): más cerca se agranda la última, con precisión de centímetros. Cortar
     // las capas grandes (rampas, verdes, garajes) en dos niveles menos es lo que más se nota al acercarse.
     mapa.addSource(id, { type: 'geojson', data: VACIO, maxzoom: 16 });
@@ -1514,6 +1590,9 @@ async function prepararMapa() {
     paint: { 'line-color': '#6A4FB3', 'line-width': ['case', ['get', 'seleccionado'], 2.5, 1], 'line-dasharray': [3, 2] } });
   mapa.addLayer({ id: 'inmueble', type: 'circle', source: 'inmueble',
     paint: { 'circle-radius': 7, 'circle-color': '#6A4FB3', 'circle-stroke-color': '#FFFFFF', 'circle-stroke-width': 2 } });
+  // El lugar fijo: un anillo oscuro con centro blanco, distinto de los pines de avisos y de los puntos de capas.
+  mapa.addLayer({ id: 'lugar-fijo', type: 'circle', source: 'lugar-fijo',
+    paint: { 'circle-radius': 9, 'circle-color': '#FFFFFF', 'circle-stroke-color': '#1E2A32', 'circle-stroke-width': 4 } });
 
   const puntos = ['subte', 'salud', 'escuelas', 'estacionamiento', 'clubes', 'gimnasios', 'ecobici', 'bibliotecas', 'rampas', 'recreacion'];
   const conTexto = [...puntos, 'colectivo', 'colectivos', 'ciclovias', 'verdes', 'riesgo', 'ruido', 'delitos'];
@@ -1542,6 +1621,7 @@ async function prepararMapa() {
   const alMoverMouse = (evento) => {
     // Mientras se arrastra o se hace zoom, consultar el mapa en cada cuadro compite con el dibujo.
     if (!evento || mapa.isMoving()) return;
+    if (estado.eligiendoLugar) { ocultarPopup(); ponerCursor('crosshair'); return; }
     const debajo = mapa.queryRenderedFeatures(evento.point, { layers: capasHover });
     const barrio = debajo.find((f) => f.layer.id === 'barrios-relleno');
     marcarHover(barrio ? barrio.id : null, 'mapa');
@@ -1560,6 +1640,10 @@ async function prepararMapa() {
   };
   mapa.on('mouseout', () => { popup?.remove(); marcarHover(null, 'mapa'); });
   mapa.on('click', (evento) => {
+    if (estado.eligiendoLugar) {
+      fijarLugar({ nombre: 'Punto marcado en el mapa', lon: evento.lngLat.lng, lat: evento.lngLat.lat });
+      return;
+    }
     const pin = mapa.queryRenderedFeatures(evento.point, { layers: ['avisos'] })[0];
     if (pin) {
       abrirPin(pin.properties.clave);
@@ -2272,9 +2356,62 @@ function renderResumenNecesidades() {
     : 'Elegí una o más para ver capas y datos relacionados. No filtran avisos ni arman puntajes.';
 }
 
+// Selector del lugar fijo, debajo de las necesidades. Solo se ve con «Tengo que ir seguido a un lugar» marcada.
+function renderLugarFijo() {
+  const caja = $('#lugar-fijo');
+  if (!caja) return;
+  caja.hidden = !(EXPLORADOR && estado.necesidades.has('lugar_fijo'));
+  if (caja.hidden) return;
+  const l = estado.lugarFijo;
+  const opciones = (estado.hospitales || []).map((h, i) => `<option value="${i}">${esc(h.nombre)}${h.barrio ? ` · ${esc(h.barrio)}` : ''}</option>`);
+  caja.innerHTML = `
+    <p class="lugar-fijo-actual">${l ? `Tu lugar fijo: <strong>${esc(l.nombre)}</strong>
+      <button class="boton-texto" type="button" id="quitar-lugar">Quitar</button>` : 'Todavía no elegiste el lugar.'}</p>
+    <label class="lugar-fijo-campo">Elegir un hospital
+      <select id="lugar-hospital"><option value="">${estado.hospitales ? 'Elegí de la lista…' : 'Cargando hospitales…'}</option>${opciones.join('')}</select></label>
+    <button class="boton-texto" type="button" id="marcar-lugar">${estado.eligiendoLugar ? 'Tocá el mapa…' : 'O marcalo en el mapa'}</button>
+    <p class="importa-ayuda">Queda guardado solo en este navegador: Lüga no lo recibe.</p>`;
+  if (!estado.hospitales) cargarHospitales();
+}
+
+async function cargarHospitales() {
+  if (estado.hospitales || cargarHospitales.pendiente) return;
+  cargarHospitales.pendiente = true;
+  try {
+    estado.hospitales = (await api('/api/hospitales')).hospitales;
+  } catch {
+    estado.hospitales = [];
+  } finally {
+    cargarHospitales.pendiente = false;
+  }
+  renderLugarFijo();
+}
+
+function pintarLugarFijo() {
+  const l = lugarActivo();
+  ponerDatos('lugar-fijo', l ? { type: 'FeatureCollection', features: [
+    { type: 'Feature', geometry: { type: 'Point', coordinates: [l.lon, l.lat] }, properties: { nombre: l.nombre } }] } : VACIO);
+}
+
+function fijarLugar(lugar) {
+  estado.lugarFijo = lugarValido(lugar);
+  estado.eligiendoLugar = false;
+  if (mapa) mapa.getCanvas().style.cursor = '';
+  if (!estado.lugarFijo && lugar) avisar('Ese punto queda fuera de la Ciudad. Elegí un lugar dentro de CABA.');
+  else if (estado.lugarFijo) avisar(`Lugar fijo: ${estado.lugarFijo.nombre}.`);
+  if (estado.ordenBarrios === 'lugar' && !estado.lugarFijo) estado.ordenBarrios = 'avisos';
+  guardar();
+  renderLugarFijo();
+  pintarLugarFijo();
+  renderResumenNecesidades();
+  renderPanel();
+}
+
 async function aplicarNecesidades() {
   guardar();
   sincronizarControles();
+  renderLugarFijo();
+  pintarLugarFijo();
   if (!estado.seleccionado) { renderPanel(); return; }
   const delitos = estado.capas.has('delitos');
   estado.capas = capasIniciales();
@@ -2557,6 +2694,20 @@ function conectarEventos() {
     $('#importa').hidden = true;
     $('#abrir-importa').setAttribute('aria-expanded', 'false');
   };
+  $('#lugar-fijo')?.addEventListener('change', (e) => {
+    if (e.target.id !== 'lugar-hospital' || e.target.value === '') return;
+    const h = estado.hospitales?.[Number(e.target.value)];
+    if (h) fijarLugar({ nombre: h.nombre, lon: h.lon, lat: h.lat });
+  });
+  $('#lugar-fijo')?.addEventListener('click', (e) => {
+    if (e.target.id === 'quitar-lugar') fijarLugar(null);
+    if (e.target.id !== 'marcar-lugar') return;
+    estado.eligiendoLugar = !estado.eligiendoLugar;
+    if (!estado.eligiendoLugar) { renderLugarFijo(); return; }
+    cerrarFiltros();
+    if (mapa) mapa.getCanvas().style.cursor = 'crosshair';
+    avisar('Tocá el mapa donde está tu lugar fijo.');
+  });
   alternarFiltros.addEventListener('click', () => {
     const abrir = alternarFiltros.getAttribute('aria-expanded') !== 'true';
     if (!abrir) { cerrarFiltros(); return; }
@@ -3216,6 +3367,7 @@ async function cargarInicio() {
 async function iniciar() {
   seguirAltoBarra();
   renderNecesidades();
+  renderLugarFijo();
   sincronizarControles();
   conectarEventos();
   if (celular()) plegarPanel(true);
@@ -3230,6 +3382,7 @@ async function iniciar() {
       encuadrar(estado.seleccionado, true);
     }
     pintarCoropletas();
+    pintarLugarFijo();
     await actualizarCapas();
   } catch (error) {
     mostrarAvisoMapa(`El mapa no se pudo preparar: ${error.message}`);

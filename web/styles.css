@@ -294,6 +294,25 @@ textarea { resize: vertical; line-height: var(--interlineado); }
 .necesidades-pie .importa-ayuda { margin: 0; }
 .necesidades-pie .boton-texto { flex: none; font-size: var(--t-chico); }
 
+/* Lugar fijo: debajo de las necesidades, con el mismo aire que el pie. */
+.lugar-fijo {
+  display: grid;
+  gap: var(--espacio-2);
+  margin: 0 0 var(--espacio-3);
+  padding: var(--espacio-3);
+  border: 1px solid var(--borde-control);
+  border-radius: var(--radio-control);
+}
+.lugar-fijo-actual { margin: 0; font-size: var(--t-chico); }
+.lugar-fijo-campo { display: grid; gap: var(--espacio-1); font-size: var(--t-chico); }
+.lugar-fijo-campo select {
+  min-width: 0; max-width: 100%; min-height: var(--alto-control);
+  border: 1px solid var(--borde-control); border-radius: var(--radio-control);
+  padding: var(--espacio-2) var(--espacio-3); background: var(--papel);
+}
+.lugar-fijo .boton-texto { justify-self: start; font-size: var(--t-chico); }
+.lugar-fijo .importa-ayuda { margin: 0; }
+
 .segun-avisos {
   margin: 0.625rem 0 0;
   padding-left: 1.1rem;
