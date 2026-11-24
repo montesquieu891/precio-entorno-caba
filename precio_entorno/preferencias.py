@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Literal
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from .importing import BARRIOS
 
@@ -85,6 +85,12 @@ def depurar(text, secret=''):
     return CONTACT.sub('[contacto omitido]', PHONE.sub('[contacto omitido]', EMAIL.sub('[contacto omitido]', text)))
 
 
+def barrio_en_evidencia(barrio, evidencia):
+    """Si la evidencia nombra el barrio con alguna de sus formas reconocidas."""
+    texto = plano(evidencia)
+    return any(canonical == barrio and re.search(r'\b' + re.escape(name.replace('_', ' ')) + r'\b', texto) for name, canonical in BARRIOS.items())
+
+
 def validar(p, texto):
     seen = {}
     for item in [*p.campos, *p.dudas, *p.no_soportadas]:
@@ -102,10 +108,7 @@ def validar(p, texto):
                 raise ValueError(k)
         if k == 'superficie' and not re.search(r'\bcubiert[oa]s?\b', plano(c.evidencia)):
             raise ValueError(k)
-        if k == 'barrio' and not any(
-            canonical == v and re.search(r'\b' + re.escape(name.replace('_', ' ')) + r'\b', plano(c.evidencia))
-            for name, canonical in BARRIOS.items()
-        ):
+        if k == 'barrio' and not barrio_en_evidencia(v, c.evidencia):
             raise ValueError(k)
         if k in valid:
             if v not in valid[k]:

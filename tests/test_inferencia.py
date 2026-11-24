@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from precio_entorno.inferencia import inputs, load, predict, save, train
+from precio_entorno.inferencia import load, predict, save, train
 from precio_entorno.analytics.inference import predict_clean
 from test_comparar_modelos import synthetic
 

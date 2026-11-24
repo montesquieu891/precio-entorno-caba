@@ -157,6 +157,14 @@ def inside(points, polygon):
     return ok
 
 
+def inside_shape(points, shape):
+    """Puntos que caen en alguno de los polígonos de una forma."""
+    hit = np.zeros(len(points), bool)
+    for polygon in shape:
+        hit |= inside(points, polygon)
+    return hit
+
+
 class Grid:
     """Muestras regulares sobre CABA: SUB × SUB muestras por celda de CELL_M metros."""
 
@@ -203,20 +211,22 @@ def rounded(geometry, transform=None):
     """Redondea a 5 decimales (≈1 m) y descarta vértices repetidos tras redondear."""
     out = []
     for polygon in polygons(geometry):
-        new = []
-        for ring in polygon:
-            points = []
-            for x, y, *_ in ring:
-                if transform:
-                    x, y = transform(x, y)
-                point = [round(x, DECIMALS), round(y, DECIMALS)]
-                if not points or point != points[-1]:
-                    points.append(point)
-            if len(points) >= 4:
-                new.append(points)
+        new = [points for points in (rounded_ring(ring, transform) for ring in polygon) if len(points) >= 4]
         if new:
             out.append(new)
     return {'type': 'MultiPolygon', 'coordinates': out}
+
+
+def rounded_ring(ring, transform=None):
+    """Vértices de un anillo redondeados, sin repetir el anterior."""
+    points = []
+    for x, y, *_ in ring:
+        if transform:
+            x, y = transform(x, y)
+        point = [round(x, DECIMALS), round(y, DECIMALS)]
+        if not points or point != points[-1]:
+            points.append(point)
+    return points
 
 
 def barrio_name(value):
@@ -240,19 +250,15 @@ class Barrios:
         points = np.asarray(points, float).reshape(-1, 2)
         out = [None] * len(points)
         for name, shape in zip(self.names, self.shapes):
-            hit = np.zeros(len(points), bool)
-            for polygon in shape:
-                hit |= inside(points, polygon)
-            for i in np.flatnonzero(hit):
-                out[i] = out[i] or name
+            hit = inside_shape(points, shape)
+            out = [name if h and not o else o for o, h in zip(out, hit)]
         return out
 
     def raster(self, grid):
         values = np.full((grid.ny, grid.nx), -1, int)
-        for index, shape in enumerate(self.shapes):
-            for polygon in shape:
-                iy, ix = grid.cover(polygon)
-                values[iy, ix] = index
+        for index, polygon in [(i, polygon) for i, shape in enumerate(self.shapes) for polygon in shape]:
+            iy, ix = grid.cover(polygon)
+            values[iy, ix] = index
         return values
 
 
@@ -381,16 +387,16 @@ def bike_lanes(collection):
         props = feature.get('properties') or {}
         name = ' '.join(str(props.get('nombre') or '').split()) or 'Ciclovía'
         kind = 'Mano única' if 'nica' in str(props.get('tipo') or '').lower() else 'Doble mano'
-        for part in parts:
-            coords = line(part or [])
-            if len(coords) < 2:
-                continue
-            length = sum(math.hypot((b[0] - a[0]) * 111_320 * math.cos(math.radians(a[1])), (b[1] - a[1]) * 111_320)
-                         for a, b in zip(coords, coords[1:]))
-            out.append({'type': 'Feature', 'geometry': {'type': 'LineString', 'coordinates': coords},
-                        'properties': {'name': name, 'kind': kind, 'length_m': round(length),
-                                       'tooltip': f'Ciclovía · {name} · {kind}'}})
+        out += [lane_feature(coords, name, kind) for coords in (line(part or []) for part in parts) if len(coords) >= 2]
     return out
+
+
+def lane_feature(coords, name, kind):
+    """Tramo de ciclovía con su largo en metros."""
+    length = sum(math.hypot((b[0] - a[0]) * 111_320 * math.cos(math.radians(a[1])), (b[1] - a[1]) * 111_320) for a, b in zip(coords, coords[1:]))
+    return {'type': 'Feature', 'geometry': {'type': 'LineString', 'coordinates': coords},
+            'properties': {'name': name, 'kind': kind, 'length_m': round(length),
+                           'tooltip': f'Ciclovía · {name} · {kind}'}}
 
 
 def ecobici_stations(rows):
@@ -462,6 +468,26 @@ def libraries(collection):
     return out
 
 
+def add_ramps(out, rows, survey):
+    """Agrega a `out` las rampas de un relevamiento, agrupadas por punto."""
+    for row in rows:
+        row = {key(k): (v or '').strip() for k, v in row.items() if k}
+        try:
+            lon, lat = round(float(row['x']), DECIMALS), round(float(row['y']), DECIMALS)
+        except (KeyError, ValueError):
+            continue
+        if not (-58.6 < lon < -58.2 and -34.75 < lat < -34.5):
+            continue
+        address = row.get('dom_norma') or ' '.join(p for p in (row.get('calle'), row.get('altura')) if p)
+        when = f"obra de {row['anio']}" if row.get('anio') else f'relevamiento {survey}'
+        previous = out.get((lon, lat))
+        # Un mismo punto puede reunir varias rampas (las esquinas se ubicaron por dirección).
+        same = previous is not None and previous['survey'] == survey
+        out[lon, lat] = {'name': 'Rampa', 'lon': lon, 'lat': lat, 'survey': survey,
+                         'count': previous['count'] + 1 if same else 1, 'address': address.title(), 'when': when,
+                         'building': (same and previous['building']) or row.get('estado', '').lower().startswith('en ejec')}
+
+
 def ramps(files):
     """Rampas de los relevamientos de obras (`{relevamiento: ruta}`), agrupadas por punto (ubicadas por dirección).
     Un punto repetido entre relevamientos queda con el más reciente. No se guardan empresas ni números de nota."""
@@ -472,22 +498,7 @@ def ramps(files):
             text = raw.decode('utf-8-sig')
         except UnicodeDecodeError:
             text = raw.decode('latin-1')
-        for row in csv.DictReader(text.splitlines(), delimiter=';'):
-            row = {key(k): (v or '').strip() for k, v in row.items() if k}
-            try:
-                lon, lat = round(float(row['x']), DECIMALS), round(float(row['y']), DECIMALS)
-            except (KeyError, ValueError):
-                continue
-            if not (-58.6 < lon < -58.2 and -34.75 < lat < -34.5):
-                continue
-            address = row.get('dom_norma') or ' '.join(p for p in (row.get('calle'), row.get('altura')) if p)
-            when = f"obra de {row['anio']}" if row.get('anio') else f'relevamiento {survey}'
-            previous = out.get((lon, lat))
-            # Un mismo punto puede reunir varias rampas (las esquinas se ubicaron por dirección).
-            same = previous is not None and previous['survey'] == survey
-            out[lon, lat] = {'name': 'Rampa', 'lon': lon, 'lat': lat, 'survey': survey,
-                             'count': previous['count'] + 1 if same else 1, 'address': address.title(), 'when': when,
-                             'building': (same and previous['building']) or row.get('estado', '').lower().startswith('en ejec')}
+        add_ramps(out, csv.DictReader(text.splitlines(), delimiter=';'), survey)
     for ramp in out.values():
         label = 'Rampa registrada' if ramp['count'] == 1 else f"{ramp['count']} rampas registradas"
         when = ramp.pop('when') + (('' if ramp['count'] == 1 else ', alguna') + ' en ejecución al relevar'
@@ -557,6 +568,11 @@ def recreation_kind(tags):
     return None
 
 
+def near_twin(lon, lat, twins):
+    """Si algún lugar ya visto con el mismo nombre y tipo está a menos de DUPLICADO_M metros."""
+    return any(math.hypot((lon - x) * 111_320 * math.cos(math.radians(lat)), (lat - y) * 111_320) < DUPLICADO_M for x, y in twins)
+
+
 def recreation(overpass):
     """Cines, teatros, museos, centros culturales y galerías de OSM. Sin nombre no se pueden identificar: se descartan."""
     out, seen = [], defaultdict(list)
@@ -571,8 +587,7 @@ def recreation(overpass):
         # Un mismo lugar a veces está como punto y como edificio: con el mismo nombre y tipo a menos de
         # DUPLICADO_M metros se queda el primero.
         twins = seen[name.casefold(), kind]
-        if any(math.hypot((lon - x) * 111_320 * math.cos(math.radians(lat)), (lat - y) * 111_320) < DUPLICADO_M
-               for x, y in twins):
+        if near_twin(lon, lat, twins):
             continue
         twins.append((lon, lat))
         street = ' '.join(v for v in (tags.get('addr:street'), tags.get('addr:housenumber')) if v)
@@ -667,10 +682,15 @@ def noise_grid(collection, grid):
             continue
         if props.get('color'):
             colors[int(low)] = [int(c) for c in str(props['color']).split()[:3]]
-        for polygon in polygons(feature['geometry']):
-            iy, ix = grid.cover(polygon)
-            values[iy, ix] = np.fmax(values[iy, ix], low)
+        raise_to(values, grid, feature['geometry'], low)
     return values, colors
+
+
+def raise_to(values, grid, geometry, low):
+    """Lleva a `low` las celdas que cubre la geometría y tenían un valor menor o ninguno."""
+    for polygon in polygons(geometry):
+        iy, ix = grid.cover(polygon)
+        values[iy, ix] = np.fmax(values[iy, ix], low)
 
 
 def noise_cells(values, grid, inside_city):
@@ -717,15 +737,47 @@ def gastronomy(osm_dir, barrios):
     if truncated:
         warnings.warn(f"OSM incompleto en {', '.join(truncated)}: no se usa la gastronomía.")
         return None
-    counts = defaultdict(Counter)
+    counts, found = defaultdict(Counter), []
     for name in GASTRONOMIA:
         items = read(osm_dir / f'{name}.json')
         coords = [(i.get('lon', i.get('longitude')), i.get('lat', i.get('latitude'))) for i in items]
         coords = [c for c in coords if isinstance(c[0], (int, float)) and isinstance(c[1], (int, float))]
-        for barrio in barrios.of(coords) if coords else []:
-            if barrio:
-                counts[barrio][name] += 1
+        found += [(barrio, name) for barrio in (barrios.of(coords) if coords else []) if barrio]
+    for barrio, name in found:
+        counts[barrio][name] += 1
     return counts
+
+
+def with_barrio(items, barrios):
+    """Anota el barrio de cada punto y deja solo los que caen en alguno."""
+    for item, name in zip(items, barrios.of([(i['lon'], i['lat']) for i in items])):
+        item['barrio'] = name
+    return [item for item in items if item['barrio']]
+
+
+def mark_cells(mask, grid, geometry):
+    """Marca las celdas de la grilla que cubre la geometría."""
+    for polygon in polygons(geometry):
+        iy, ix = grid.cover(polygon)
+        mask[iy, ix] = True
+
+
+def tag_barrio(cells, grid, cell_barrio, names):
+    """Agrega a cada celda de ruido el barrio que le corresponde en la grilla gruesa."""
+    for cell in cells:
+        cy = int((cell[1] - grid.south) / grid.dlat) // grid.sub
+        cx = int((cell[0] - grid.west) / grid.dlon) // grid.sub
+        cell.append(names[cell_barrio[cy, cx]])
+
+
+def noise_share(cells, name, period):
+    """Celdas relevadas del barrio y proporción con ruido alto; None si hay pocas celdas."""
+    typical = [cell[2] for cell in cells if cell[4] == name]
+    return {
+        'celdas': len(typical),
+        'alto': (round(sum(v >= LOUD_DBA[period] for v in typical) / len(typical), 3)
+                 if len(typical) >= MIN_NOISE_CELLS else None),
+    }
 
 
 def convert(poi_dir, entorno_dir, target, downloaded=None, osm_dir=None, gyms_path=None, gtfs_zip=None,
@@ -788,9 +840,7 @@ def convert(poi_dir, entorno_dir, target, downloaded=None, osm_dir=None, gyms_pa
             feature['properties']['barrio'] = name
         lanes = [f for f in lanes if f['properties']['barrio']]
     for items in points.values():
-        for item, name in zip(items, barrios.of([(i['lon'], i['lat']) for i in items])):
-            item['barrio'] = name
-        items[:] = [item for item in items if item['barrio']]
+        items[:] = with_barrio(items, barrios)
 
     greens = green_spaces(read(path['verdes']))
     centers = [f.pop('_centro') for f in greens]
@@ -801,9 +851,7 @@ def convert(poi_dir, entorno_dir, target, downloaded=None, osm_dir=None, gyms_pa
     risk_features, risk = [], np.zeros((grid.ny, grid.nx), bool)
     for feature in read(path['riesgo_hidrico'])['features']:
         geometry = rounded(feature['geometry'], gkba.transform)
-        for polygon in polygons(geometry):
-            iy, ix = grid.cover(polygon)
-            risk[iy, ix] = True
+        mark_cells(risk, grid, geometry)
         if geometry['coordinates']:
             risk_features.append({'type': 'Feature', 'geometry': geometry, 'properties': {
                 'tooltip': 'Área de prevención por riesgo hídrico · Capa 2020 · Dato para investigar en la visita'}})
@@ -813,11 +861,8 @@ def convert(poi_dir, entorno_dir, target, downloaded=None, osm_dir=None, gyms_pa
         values, colors = noise_grid(read(path[f'ruido_{period}']), grid)
         noise_colors.update(colors)
         noise[period] = noise_cells(values, grid, cell_barrio >= 0)
-    for period, cells in noise.items():
-        for cell in cells:
-            cy = int((cell[1] - grid.south) / grid.dlat) // grid.sub
-            cx = int((cell[0] - grid.west) / grid.dlon) // grid.sub
-            cell.append(names[cell_barrio[cy, cx]])
+    for cells in noise.values():
+        tag_barrio(cells, grid, cell_barrio, names)
 
     gtfs_zip = Path(gtfs_zip) if gtfs_zip else None
     lines = colectivos_gtfs.build(gtfs_zip, barrios) if gtfs_zip and gtfs_zip.is_file() else None
@@ -831,17 +876,9 @@ def convert(poi_dir, entorno_dir, target, downloaded=None, osm_dir=None, gyms_pa
     for index, name in enumerate(names):
         within = city == index
         mine = {layer: [i for i in items if i['barrio'] == name] for layer, items in points.items()}
-        school_counts = {level: Counter(s['management'] for s in mine['escuelas'] if level in s['levels'])
-                         for level in LEVELS}
+        school_counts = {level: Counter(s['management'] for s in mine['escuelas'] if level in s['levels']) for level in LEVELS}
         own_greens = [f['properties'] for f in greens if f['properties']['barrio'] == name]
-        noise_summary = {}
-        for period, cells in noise.items():
-            typical = [cell[2] for cell in cells if cell[4] == name]
-            noise_summary[period] = {
-                'celdas': len(typical),
-                'alto': (round(sum(v >= LOUD_DBA[period] for v in typical) / len(typical), 3)
-                         if len(typical) >= MIN_NOISE_CELLS else None),
-            }
+        noise_summary = {period: noise_share(cells, name, period) for period, cells in noise.items()}
         summary[name] = {
             'comuna': barrios.comunas[name],
             'area_ha': barrios.area_ha[name],
@@ -855,9 +892,8 @@ def convert(poi_dir, entorno_dir, target, downloaded=None, osm_dir=None, gyms_pa
             'ruido': noise_summary,
             'riesgo_hidrico': share(risk, within),
         }
-        for layer in ('clubes', 'gimnasios', 'ecobici', 'bibliotecas', 'universidades'):
-            if layer in points:
-                summary[name][layer] = len(mine[layer])
+        layers = ('clubes', 'gimnasios', 'ecobici', 'bibliotecas', 'universidades')
+        summary[name].update({layer: len(mine[layer]) for layer in layers if layer in points})
         if 'trenes' in points:
             summary[name]['trenes'] = len({s['name'] for s in mine['trenes']})
             summary[name]['trenes_lineas'] = sorted({s['line'] for s in mine['trenes']})

@@ -8,6 +8,22 @@ from .preferencias import ErrorPreferencias, Interprete, reglas
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def campos_de(propuesta):
+    """Campos propuestos por clave; barrio y capa juntan sus valores en una lista."""
+    actual = {}
+    for campo in propuesta.campos:
+        if campo.clave in ('barrio', 'capa'):
+            actual.setdefault(campo.clave, []).append(campo.valor)
+        else:
+            actual[campo.clave] = campo.valor
+    return actual
+
+
+def coincide(a, b):
+    """Si el valor propuesto es el esperado; las listas se comparan sin importar el orden."""
+    return sorted(a) == sorted(b) if isinstance(a, list) and isinstance(b, list) else a == b
+
+
 def evaluar(casos, interpretar):
     correctos = total = dudas_ok = dudas_total = silenciosos = condiciones = 0
     for caso in casos:
@@ -15,24 +31,16 @@ def evaluar(casos, interpretar):
             propuesta = interpretar(caso['texto'])
         except ErrorPreferencias as error:
             raise SystemExit(f"{caso['id']}: {error}") from None
-        actual = {}
-        for campo in propuesta.campos:
-            if campo.clave in ('barrio', 'capa'):
-                actual.setdefault(campo.clave, []).append(campo.valor)
-            else:
-                actual[campo.clave] = campo.valor
+        actual = campos_de(propuesta)
         gold = caso['campos']
         claves = actual.keys() | gold.keys()
-        for clave in claves:
-            a, b = actual.get(clave), gold.get(clave)
-            correctos += sorted(a) == sorted(b) if isinstance(a, list) and isinstance(b, list) else a == b
+        correctos += sum(coincide(actual.get(clave), gold.get(clave)) for clave in claves)
         total += len(claves)
         dudas = {d.campo for d in propuesta.dudas}
         esperadas = set(caso['dudas'])
         dudas_ok += len(dudas & esperadas)
         dudas_total += len(dudas | esperadas)
-        silenciosos += sum(k in actual and actual[k] != gold.get(k) and k not in dudas
-                           for k in ('moneda', 'operacion'))
+        silenciosos += sum(k in actual and actual[k] != gold.get(k) and k not in dudas for k in ('moneda', 'operacion'))
         condiciones += sorted(c.obligatoria for c in propuesta.no_soportadas) == sorted(caso['condiciones'])
     return {'casos': len(casos), 'exactitud': correctos / max(1, total),
             'deteccion_dudas': dudas_ok / max(1, dudas_total), 'cambios_silenciosos': silenciosos,

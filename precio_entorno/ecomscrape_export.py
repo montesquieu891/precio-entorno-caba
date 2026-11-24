@@ -10,6 +10,20 @@ from precio_entorno.importing import BARRIOS, key
 from precio_entorno.run_pilot import SOURCE, batch_stats, listing_link
 
 
+def sale_prices(operations):
+    """Precios de las operaciones de venta de un aviso."""
+    return [price for operation in operations if key(operation['operation_type']['name']) == 'venta' for price in operation['prices']]
+
+
+def barrio_of(node):
+    """Barrio del primer nivel de la jerarquía de ubicación marcado como «barrio»."""
+    while isinstance(node, dict):
+        if key(node.get('label')) == 'barrio':
+            return BARRIOS.get(key(node.get('name')))
+        node = node.get('parent')
+    return None
+
+
 def adapt_export(rows, captured_at):
     if not isinstance(rows, list) or len(rows) > 50:
         raise ValueError('Se espera un JSON con hasta 50 filas del piloto.')
@@ -27,20 +41,12 @@ def adapt_export(rows, captured_at):
             link = listing_link(urljoin('https://www.zonaprop.com.ar/', row['url']))
             if not link or link[0] != f"zonaprop.com.ar:{row['posting_id']}":
                 continue
-            prices = [price for operation in row['price_operation_types']
-                      if key(operation['operation_type']['name']) == 'venta'
-                      for price in operation['prices']]
+            prices = sale_prices(row['price_operation_types'])
             if not prices:
                 continue
             price = next((p for p in prices if key(p.get('currency')) == 'usd'), prices[0])
             location = row['posting_location']
-            node = location['location']
-            barrio = None
-            while isinstance(node, dict):
-                if key(node.get('label')) == 'barrio':
-                    barrio = BARRIOS.get(key(node.get('name')))
-                    break
-                node = node.get('parent')
+            barrio = barrio_of(location['location'])
             if barrio not in ('Caballito', 'Almagro'):
                 continue
             geo = ((location.get('posting_geolocation') or {}).get('geolocation') or {})

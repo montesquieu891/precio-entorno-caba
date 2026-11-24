@@ -64,7 +64,7 @@ y queda en `data/processed/eda-colab/` (fuera de Git). En Colab, la celda siguie
 """)
 
 code(r"""
-import io, json, zipfile, warnings
+import json, zipfile, warnings
 from pathlib import Path
 
 import numpy as np
@@ -140,17 +140,18 @@ def miles(x):
     return f'{x:,.0f}'.replace(',', '.')
 
 
+def poligonos(g):
+    return g['coordinates'] if g['type'] == 'MultiPolygon' else [g['coordinates']]
+
+
 def mapa_barrios(valores, titulo, cmap='Purples', fmt=miles, ax=None, etiquetas=6, centro=None, lim=None):
     # Coropleta simple con matplotlib (sin geopandas): valores es una Serie indexada por barrio.
     ax = ax or plt.subplots(figsize=(7, 7))[1]
     parches, datos = [], []
-    for f in geo['features']:
-        nombre = f['properties']['barrio']
-        g = f['geometry']
-        polis = g['coordinates'] if g['type'] == 'MultiPolygon' else [g['coordinates']]
-        for p in polis:
-            parches.append(MplPolygon(np.array(p[0]), closed=True))
-            datos.append(valores.get(nombre, np.nan))
+    piezas = [(f['properties']['barrio'], p) for f in geo['features'] for p in poligonos(f['geometry'])]
+    for nombre, p in piezas:
+        parches.append(MplPolygon(np.array(p[0]), closed=True))
+        datos.append(valores.get(nombre, np.nan))
     datos = np.array(datos, dtype=float)
     col = PatchCollection(parches, cmap=cmap, edgecolor='white', linewidth=.6)
     col.set_array(np.ma.masked_invalid(datos))

@@ -45,8 +45,7 @@ def validate(rows):
         elif item['moneda_expensas'] is not None:
             raise ValueError('La moneda de expensas requiere un importe.')
         item['direccion'] = str(row.get('direccion') or '')
-        for name in ('lat', 'lon'):
-            item[name] = row.get(name)
+        item['lat'], item['lon'] = row.get('lat'), row.get('lon')
         lat, lon = item['lat'], item['lon']
         if lat is not None or lon is not None:
             if not (type(lat) in (int, float) and type(lon) in (int, float)

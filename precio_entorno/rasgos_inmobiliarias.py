@@ -39,10 +39,10 @@ def pending(store, operation, raw=None, sites=SITES, fields=None):
         missing = {row['id'] for row in store.listings(include_inactive=True)
                    if row['id'].split(':', 1)[0] in sites and row[DESCRIPTION_FIELDS[0]] is None}
     latest = {}
-    for path in raw_folders(operation, raw):
-        for item in json.loads(path.read_text(encoding='utf-8')):
-            if item.get('listing_id') in missing:
-                latest[item['listing_id']] = item
+    items = [item for path in raw_folders(operation, raw) for item in json.loads(path.read_text(encoding='utf-8'))]
+    for item in items:
+        if item.get('listing_id') in missing:
+            latest[item['listing_id']] = item
     return [latest[i] for i in sorted(latest)]
 
 

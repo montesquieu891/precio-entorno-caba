@@ -25,6 +25,19 @@ def crimes(rows):
     return df.assign(cantidad=1, uso_arma=df['tipo'].eq('Robo'), delito=df['tipo'] != 'Vialidad')
 
 
+def synthetic_crimes(rng, months, barrio, clat, clon):
+    """Robos y hurtos concentrados en un foco del barrio, más amenazas repartidas, con coordenadas ficticias."""
+    hotspot = (clat + rng.uniform(-0.006, 0.006), clon + rng.uniform(-0.006, 0.006))
+    rows = []
+    for _ in range(600):
+        lat, lon = rng.normal(hotspot, 0.002)
+        rows.append((rng.choice(months), rng.choice(['Robo', 'Hurto']), barrio, lat, lon))
+    for _ in range(300):
+        lat, lon = clat + rng.uniform(-0.01, 0.01), clon + rng.uniform(-0.01, 0.01)
+        rows.append((rng.choice(months), 'Amenazas', barrio, lat, lon))
+    return rows
+
+
 class ModeloTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
@@ -81,13 +94,7 @@ class ModeloTests(unittest.TestCase):
         months = pd.period_range('2025-01', '2025-12', freq='M').strftime('%Y-%m')
         rows = []
         for barrio, (clat, clon) in CENTERS.items():
-            hotspot = (clat + rng.uniform(-0.006, 0.006), clon + rng.uniform(-0.006, 0.006))
-            for _ in range(600):
-                lat, lon = rng.normal(hotspot, 0.002)
-                rows.append((rng.choice(months), rng.choice(['Robo', 'Hurto']), barrio, lat, lon))
-            for _ in range(300):
-                lat, lon = clat + rng.uniform(-0.01, 0.01), clon + rng.uniform(-0.01, 0.01)
-                rows.append((rng.choice(months), 'Amenazas', barrio, lat, lon))
+            rows += synthetic_crimes(rng, months, barrio, clat, clon)
         avisos = []
         for i in range(400):
             barrio = list(CENTERS)[i % 4]

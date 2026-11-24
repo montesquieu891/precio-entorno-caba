@@ -9,8 +9,7 @@ from precio_entorno import make_escenarios as m
 def modules(flow):
     for item in flow:
         yield item
-        for route in item.get('routes', []):
-            yield from modules(route['flow'])
+        yield from (module for route in item.get('routes', []) for module in modules(route['flow']))
 
 
 class BlueprintTests(unittest.TestCase):

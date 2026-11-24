@@ -97,7 +97,7 @@ if EN_COLAB and INSTALAR_EN_COLAB:
         if modulo in cargadas and importlib.metadata.version(distribucion) != previas[distribucion]:
             raise RuntimeError('Cambió una biblioteca ya cargada. Reiniciar entorno y ejecutar desde el inicio.')
 
-import io, json, hashlib, html, time, warnings, shutil
+import io, json, hashlib, html, time, warnings
 from zipfile import ZipFile, ZIP_DEFLATED
 from datetime import datetime, timezone
 from pathlib import PurePosixPath

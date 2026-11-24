@@ -146,11 +146,12 @@ class ConcentracionTests(unittest.TestCase):
         self.assertEqual(night['resumen_radios'], all_events['resumen_radios'])
 
     def test_geodesic_circle_and_distance_agree_at_all_three_boundaries(self):
-        for radius in (250, 500, 1000):
-            ring = circle(PIN['longitude'], PIN['latitude'], radius)['coordinates'][0]
+        rings = {radius: circle(PIN['longitude'], PIN['latitude'], radius)['coordinates'][0] for radius in (250, 500, 1000)}
+        for ring in rings.values():
             self.assertEqual(ring[0], ring[-1])
-            for lon, lat in ring[:-1]:
-                self.assertAlmostEqual(distance_m(PIN['longitude'], PIN['latitude'], lon, lat), radius, places=6)
+        vertices = [(radius, lon, lat) for radius, ring in rings.items() for lon, lat in ring[:-1]]
+        for radius, lon, lat in vertices:
+            self.assertAlmostEqual(distance_m(PIN['longitude'], PIN['latitude'], lon, lat), radius, places=6)
 
     def test_official_field_aliases_and_invalid_sources(self):
         path = self.file('delitos.csv', [self.event('a')])

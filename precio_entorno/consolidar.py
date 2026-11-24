@@ -13,6 +13,20 @@ from pathlib import Path
 from precio_entorno.inmobiliarias import possible_duplicates
 
 
+def add_counts(target, counts):
+    """Suma cada conteo al acumulado del mismo motivo."""
+    for reason, count in counts.items():
+        target[reason] = target.get(reason, 0) + count
+
+
+def add_unseen(listings, seen, items):
+    """Agrega los avisos cuyo ID todavía no apareció, en el orden en que llegan."""
+    for item in items:
+        if item['listing_id'] not in seen:
+            seen.add(item['listing_id'])
+            listings.append(item)
+
+
 def site_entries(log):
     """Sitios de un registro. Las capturas de Apify se resumen por corridas."""
     if 'sitios' in log:
@@ -20,8 +34,7 @@ def site_entries(log):
     if 'corridas' in log:
         omitted = {}
         for run in log['corridas']:
-            for reason, count in (run.get('omitidos') or {}).items():
-                omitted[reason] = omitted.get(reason, 0) + count
+            add_counts(omitted, run.get('omitidos') or {})
         return {'zonaprop': {'estado': 'completo', 'avisos': sum(r.get('avisos', 0) for r in log['corridas']),
                              'omitidos': omitted, 'pedidos': len(log['corridas'])}}
     return {}
@@ -35,8 +48,7 @@ def merge_sites(target, entries):
         merged = target[site]
         merged['avisos'] = merged.get('avisos', 0) + entry.get('avisos', 0)
         merged['pedidos'] = (merged.get('pedidos') or 0) + (entry.get('pedidos') or 0)
-        for reason, count in (entry.get('omitidos') or {}).items():
-            merged['omitidos'][reason] = merged['omitidos'].get(reason, 0) + count
+        add_counts(merged['omitidos'], entry.get('omitidos') or {})
         if 'segundos' in merged or 'segundos' in entry:
             merged['segundos'] = (merged.get('segundos') or 0) + (entry.get('segundos') or 0)
 
@@ -44,10 +56,7 @@ def merge_sites(target, entries):
 def consolidate(folders, out):
     listings, seen, sites, captures = [], set(), {}, []
     for folder in map(Path, folders):
-        for item in json.loads((folder / 'avisos.json').read_text(encoding='utf-8')):
-            if item['listing_id'] not in seen:
-                seen.add(item['listing_id'])
-                listings.append(item)
+        add_unseen(listings, seen, json.loads((folder / 'avisos.json').read_text(encoding='utf-8')))
         log_path = folder / 'registro.json'
         log = json.loads(log_path.read_text(encoding='utf-8')) if log_path.exists() else {}
         merge_sites(sites, site_entries(log))

@@ -20,15 +20,19 @@ from precio_entorno import benchmark_inmobiliario as bm
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def shared_groups(a, b):
+    """Cantidad de grupos que aparecen en las dos particiones."""
+    return len(set(a['grupo']) & set(b['grupo']))
+
+
 def verify_splits(data):
     checks = []
     seen = []
     for fold, (a, b) in enumerate(GroupKFold(5).split(data, groups=data['grupo']), 1):
         train, test = data.iloc[a], data.iloc[b]
-        overlaps = len(set(train['grupo']) & set(test['grupo']))
-        inner_overlaps = []
-        for i, j in GroupKFold(3).split(train, groups=train['grupo']):
-            inner_overlaps.append(len(set(train.iloc[i]['grupo']) & set(train.iloc[j]['grupo'])))
+        overlaps = shared_groups(train, test)
+        inner = GroupKFold(3).split(train, groups=train['grupo'])
+        inner_overlaps = [shared_groups(train.iloc[i], train.iloc[j]) for i, j in inner]
         if overlaps or any(inner_overlaps):
             raise ValueError('Se detectaron grupos compartidos entre particiones.')
         checks.append({'fold': fold, 'n_train': len(train), 'n_test': len(test),
@@ -78,8 +82,8 @@ def run(bundle_path, output, evidence):
     fits.to_csv(evidence / 'ajustes.csv', index=False)
     summary.to_csv(evidence / 'resumen.csv', index=False)
     for col in ['agency', 'neighborhood']:
-        table = pd.DataFrame([{'model': m, 'scope': s, col: value, **bm.scores(block).to_dict()}
-                              for (m, s, value), block in oof.groupby(['model', 'scope', col])])
+        blocks = oof.groupby(['model', 'scope', col])
+        table = pd.DataFrame([{'model': m, 'scope': s, col: value, **bm.scores(block).to_dict()} for (m, s, value), block in blocks])
         table.to_csv(evidence / f'por_{col}.csv', index=False)
     families = list(bm.model_specs(False))
     best = summary[summary['model'].isin(families)].sort_values('mae').iloc[0]

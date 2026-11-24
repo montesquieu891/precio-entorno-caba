@@ -93,6 +93,22 @@ OSM_GROUPS = {
 }
 
 
+def load_osm_folder(folder, capped, points, truncated, sources):
+    """Suma las categorías completas de una carpeta; las que llegaron al tope quedan como truncadas."""
+    for path in folder.glob('*.json'):
+        if path.name == 'corridas.json':
+            continue
+        if path.stem in capped:
+            if path.stem not in points:
+                truncated.add(path.stem)
+            continue
+        rows = json.loads(path.read_text(encoding='utf-8'))
+        coords = [(r.get('lat', r.get('latitude')), r.get('lon', r.get('longitude'))) for r in rows]
+        points[path.stem] = np.array([c for c in coords if None not in c], dtype=float).reshape(-1, 2)
+        sources[path.stem] = folder.name
+        truncated.discard(path.stem)
+
+
 def load_osm(*folders):
     """Lee puntos de interés por archivo de categoría: {nombre: array [lat, lon]}.
 
@@ -107,18 +123,7 @@ def load_osm(*folders):
         log = json.loads(log_path.read_text(encoding='utf-8')) if log_path.exists() else []
         capped = {r['nombre'] for r in log
                   if r.get('puntos') is not None and r.get('max_items') is not None and r['puntos'] >= r['max_items']}
-        for path in folder.glob('*.json'):
-            if path.name == 'corridas.json':
-                continue
-            if path.stem in capped:
-                if path.stem not in points:
-                    truncated.add(path.stem)
-                continue
-            rows = json.loads(path.read_text(encoding='utf-8'))
-            coords = [(r.get('lat', r.get('latitude')), r.get('lon', r.get('longitude'))) for r in rows]
-            points[path.stem] = np.array([c for c in coords if None not in c], dtype=float).reshape(-1, 2)
-            sources[path.stem] = folder.name
-            truncated.discard(path.stem)
+        load_osm_folder(folder, capped, points, truncated, sources)
     load_osm.truncated, load_osm.sources = sorted(truncated), sources
     return points
 
@@ -131,14 +136,18 @@ def amenities(listings, points, radius_m=RADIUS_M):
         found = [points[f] for f in files if f in points and len(points[f])]
         if len(found) < len(files):
             continue  # Falta alguna categoría del grupo, o está incompleta: sin dato.
-        pts = np.vstack(found)
-        for i in out.index[out['pin_para_radio'].to_numpy(dtype=bool)]:
-            lat0, lon0 = out.at[i, 'latitude'], out.at[i, 'longitude']
-            dx = (pts[:, 1] - lon0) * np.cos(np.radians(lat0)) * 111_320
-            dy = (pts[:, 0] - lat0) * 110_574
-            d2 = dx * dx + dy * dy
-            out.at[i, name] = float(np.sqrt(d2.min())) if kind == 'nearest' else int((d2 <= radius_m ** 2).sum())
+        fill_amenity(out, name, kind, np.vstack(found), radius_m)
     return out
+
+
+def fill_amenity(out, name, kind, pts, radius_m):
+    """Distancia al punto más cercano o cantidad de puntos en el radio, para cada aviso con pin apto."""
+    for i in out.index[out['pin_para_radio'].to_numpy(dtype=bool)]:
+        lat0, lon0 = out.at[i, 'latitude'], out.at[i, 'longitude']
+        dx = (pts[:, 1] - lon0) * np.cos(np.radians(lat0)) * 111_320
+        dy = (pts[:, 0] - lat0) * 110_574
+        d2 = dx * dx + dy * dy
+        out.at[i, name] = float(np.sqrt(d2.min())) if kind == 'nearest' else int((d2 <= radius_m ** 2).sum())
 
 
 def crime_window(capture, months):
@@ -177,19 +186,22 @@ def environment(listings, crimes, radius_m=RADIUS_M):
         out.loc[idx, BARRIO_FEATURES] = by_barrio.reindex(out.loc[idx, 'neighborhood']).to_numpy()
         out.loc[idx, 'ventana'] = f'{window[0]} a {window[-1]}'
         last = pd.Period(window[-1], freq='M')
-        out.loc[idx, 'desfase_meses'] = [(pd.Period(c, freq='M') - last).n - 1
-                                         for c in out.loc[idx, 'captured_at']]
+        out.loc[idx, 'desfase_meses'] = [(pd.Period(c, freq='M') - last).n - 1 for c in out.loc[idx, 'captured_at']]
 
-        lat, lon = sub['latitud'].to_numpy(), sub['longitud'].to_numpy()
-        is_rh = rh.to_numpy()
-        for i in idx[out.loc[idx, 'pin_para_radio'].to_numpy(dtype=bool)]:
-            lat0, lon0 = out.at[i, 'latitude'], out.at[i, 'longitude']
-            dx = (lon - lon0) * np.cos(np.radians(lat0)) * 111_320
-            dy = (lat - lat0) * 110_574
-            near = dx * dx + dy * dy <= radius_m * radius_m
-            out.at[i, 'radio_delitos'] = int(near.sum())
-            out.at[i, 'radio_robos_hurtos'] = int((near & is_rh).sum())
+        pinned = idx[out.loc[idx, 'pin_para_radio'].to_numpy(dtype=bool)]
+        fill_radius_crimes(out, pinned, sub['latitud'].to_numpy(), sub['longitud'].to_numpy(), rh.to_numpy(), radius_m)
     return out
+
+
+def fill_radius_crimes(out, pinned, lat, lon, is_rh, radius_m):
+    """Delitos y robos o hurtos a menos de `radius_m` metros de cada aviso con pin apto."""
+    for i in pinned:
+        lat0, lon0 = out.at[i, 'latitude'], out.at[i, 'longitude']
+        dx = (lon - lon0) * np.cos(np.radians(lat0)) * 111_320
+        dy = (lat - lat0) * 110_574
+        near = dx * dx + dy * dy <= radius_m * radius_m
+        out.at[i, 'radio_delitos'] = int(near.sum())
+        out.at[i, 'radio_robos_hurtos'] = int((near & is_rh).sum())
 
 
 def group_split(df, seed, test_size=0.2):

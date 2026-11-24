@@ -132,21 +132,26 @@ def build(zip_path, barrios):
         line = lines.setdefault(name, {'barrios': set(), 'ramales': set(), 'shapes': set()})
         line['ramales'].add(route['route_desc'].strip() or route['route_short_name'])
         line['shapes'].update(mine)
-        for shape_id in mine:
-            line['barrios'] |= shape_barrios[shape_id]
+        line['barrios'].update(*(shape_barrios[shape_id] for shape_id in mine))
 
     result = {}
     for name in sorted(lines, key=line_order):
         line = lines[name]
-        paths, seen = [], set()
-        for shape_id in sorted(line['shapes']):
-            path = [[round(x, DECIMALS), round(y, DECIMALS)] for x, y in simplify(shape_coords[shape_id])]
-            signature = (tuple(path[0]), tuple(path[-1]), len(path))
-            if signature not in seen:
-                seen.add(signature)
-                paths.append(path)
+        paths = distinct_paths(shape_coords[shape_id] for shape_id in sorted(line['shapes']))
         result[name] = {'barrios': sorted(line['barrios']), 'ramales': sorted(line['ramales']), 'recorrido': paths}
     return result
+
+
+def distinct_paths(coords_list):
+    """Trazados simplificados y redondeados, sin repetir los que tienen mismos extremos y largo."""
+    paths, seen = [], set()
+    for coords in coords_list:
+        path = [[round(x, DECIMALS), round(y, DECIMALS)] for x, y in simplify(coords)]
+        signature = (tuple(path[0]), tuple(path[-1]), len(path))
+        if signature not in seen:
+            seen.add(signature)
+            paths.append(path)
+    return paths
 
 
 # Paleta para distinguir líneas en el mapa; el color de cada línea es estable entre barrios.
@@ -164,22 +169,25 @@ def clip(paths, bbox):
     Se conservan los segmentos cuyo rectángulo se superpone con el del barrio, así que una avenida
     recta que lo cruza sin vértices adentro también aparece. Los segmentos contiguos forman un tramo.
     """
+    return [piece for path in paths for piece in pieces_in(path, bbox)]
+
+
+def pieces_in(path, bbox):
+    """Tramos de un trazado formados por segmentos contiguos que tocan el rectángulo."""
     west, south, east, north = bbox
-    out = []
-    for path in paths:
-        piece = []
-        for (x0, y0), (x1, y1) in zip(path, path[1:]):
-            touches = (min(x0, x1) <= east and max(x0, x1) >= west
-                       and min(y0, y1) <= north and max(y0, y1) >= south)
-            if touches:
-                if not piece:
-                    piece = [[x0, y0]]
-                piece.append([x1, y1])
-            elif piece:
-                out.append(piece)
-                piece = []
-        if piece:
+    out, piece = [], []
+    for (x0, y0), (x1, y1) in zip(path, path[1:]):
+        touches = (min(x0, x1) <= east and max(x0, x1) >= west
+                   and min(y0, y1) <= north and max(y0, y1) >= south)
+        if touches:
+            if not piece:
+                piece = [[x0, y0]]
+            piece.append([x1, y1])
+        elif piece:
             out.append(piece)
+            piece = []
+    if piece:
+        out.append(piece)
     return out
 
 
@@ -200,7 +208,7 @@ def barrio_features(lines, barrio, bbox):
 def by_barrio(lines):
     """{barrio: [líneas ordenadas]} a partir del resultado de `build`."""
     out = defaultdict(list)
-    for name, line in lines.items():
-        for barrio in line['barrios']:
-            out[barrio].append(name)
+    pairs = [(barrio, name) for name, line in lines.items() for barrio in line['barrios']]
+    for barrio, name in pairs:
+        out[barrio].append(name)
     return {barrio: sorted(names, key=line_order) for barrio, names in out.items()}

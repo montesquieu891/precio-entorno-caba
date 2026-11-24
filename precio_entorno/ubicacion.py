@@ -26,16 +26,17 @@ PUBLICADA, APROXIMADA = 'publicada', 'aproximada'
 def distance_to_polygons_m(lon, lat, shapes):
     """Distancia en metros del punto al borde más cercano (aproximación plana, válida a escala de barrio)."""
     scale = 111_320 * math.cos(math.radians(lat))
-    best = math.inf
-    for polygon in shapes:
-        for ring in polygon:
-            ring = np.asarray(ring, float)[:, :2]
-            x, y = (ring[:, 0] - lon) * scale, (ring[:, 1] - lat) * 111_320
-            x1, y1, dx, dy = x[:-1], y[:-1], np.diff(x), np.diff(y)
-            t = np.clip(-(x1 * dx + y1 * dy) / np.maximum(dx * dx + dy * dy, 1e-9), 0, 1)
-            if len(t):
-                best = min(best, float(np.hypot(x1 + t * dx, y1 + t * dy).min()))
-    return best
+    rings = [ring for polygon in shapes for ring in polygon]
+    return min((distance_to_ring_m(lon, lat, ring, scale) for ring in rings), default=math.inf)
+
+
+def distance_to_ring_m(lon, lat, ring, scale):
+    """Distancia en metros del punto al tramo más cercano de un anillo; infinito si no tiene tramos."""
+    ring = np.asarray(ring, float)[:, :2]
+    x, y = (ring[:, 0] - lon) * scale, (ring[:, 1] - lat) * 111_320
+    x1, y1, dx, dy = x[:-1], y[:-1], np.diff(x), np.diff(y)
+    t = np.clip(-(x1 * dx + y1 * dy) / np.maximum(dx * dx + dy * dy, 1e-9), 0, 1)
+    return float(np.hypot(x1 + t * dx, y1 + t * dy).min()) if len(t) else math.inf
 
 
 def quality(lon, lat, geometry):

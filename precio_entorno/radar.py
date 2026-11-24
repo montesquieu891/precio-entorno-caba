@@ -253,13 +253,20 @@ def _jsonld(texto):
             datos = json.loads(bloque.strip())
         except json.JSONDecodeError:
             continue
-        candidatos = datos if isinstance(datos, list) else datos.get('@graph', [datos])
-        for c in candidatos:
-            tipo = c.get('@type') if isinstance(c, dict) else None
-            tipos = tipo if isinstance(tipo, list) else [tipo]
-            if any(t in ('NewsArticle', 'Article', 'ReportageNewsArticle', 'AnalysisNewsArticle') for t in tipos):
-                return c
+        articulo = _articulo_en(datos if isinstance(datos, list) else datos.get('@graph', [datos]))
+        if articulo is not None:
+            return articulo
     return {}
+
+
+def _articulo_en(candidatos):
+    """El primer bloque JSON-LD que declara ser una nota; None si no hay."""
+    for c in candidatos:
+        tipo = c.get('@type') if isinstance(c, dict) else None
+        tipos = tipo if isinstance(tipo, list) else [tipo]
+        if any(t in ('NewsArticle', 'Article', 'ReportageNewsArticle', 'AnalysisNewsArticle') for t in tipos):
+            return c
+    return None
 
 
 def _meta(texto, nombre):
@@ -285,6 +292,17 @@ def parse_articulo(texto):
     }
 
 
+def _listar_sitemap(cliente, fuente, url, desde):
+    """Notas de un índice de sitemaps de noticias y el cierre más reciente anterior al período."""
+    items, cierre_anterior = [], None
+    for loc, modificado in parse_urlset(cliente.get(url))[:8]:
+        if modificado and dia(modificado) < desde:
+            cierre_anterior = max(filter(None, (cierre_anterior, dia(modificado))))
+            continue
+        items += [{'url': canonica(direccion), 'titular': None, 'fecha': fecha} for direccion, fecha in parse_urlset(cliente.get(loc))]
+    return [i for i in items if i['url'].startswith(fuente.prefijo)], cierre_anterior
+
+
 def _listar(cliente, fuente, tipo, url, desde):
     """Devuelve (items, fecha más antigua vista en el listado)."""
     if tipo == 'rss':
@@ -304,14 +322,7 @@ def _listar(cliente, fuente, tipo, url, desde):
     elif tipo == 'sitemap_noticias':
         # Cada archivo del índice cubre una semana que termina en su lastmod. Se leen los que terminan
         # dentro del período o después; el primero que termina antes prueba que la cobertura es completa.
-        items, cierre_anterior = [], None
-        for loc, modificado in parse_urlset(cliente.get(url))[:8]:
-            if modificado and dia(modificado) < desde:
-                cierre_anterior = max(filter(None, (cierre_anterior, dia(modificado))))
-                continue
-            for direccion, fecha in parse_urlset(cliente.get(loc)):
-                items.append({'url': canonica(direccion), 'titular': None, 'fecha': fecha})
-        return [i for i in items if i['url'].startswith(fuente.prefijo)], cierre_anterior
+        return _listar_sitemap(cliente, fuente, url, desde)
     elif tipo == 'seccion':
         items = parse_seccion_tn(cliente.get(url))
     else:
@@ -366,6 +377,14 @@ def nota_desde(fuente, articulo, listado, recolectado):
     }
 
 
+def _sumar_candidatos(candidatos, items):
+    """Une los ítems de un listado con los ya vistos: conserva el titular y la fecha más antigua."""
+    for item in items:
+        previo_item = candidatos.get(item['url'], {})
+        candidatos[item['url']] = {**item, 'titular': item['titular'] or previo_item.get('titular'),
+                                   'fecha': min(filter(None, (item['fecha'], previo_item.get('fecha'))), default=None)}
+
+
 def recolectar_fuente(fuente, desde, hasta, cliente, directorio, reclasificar=False, momento=None):
     """Recolecta una fuente para el período y la guarda en su archivo. Devuelve el registro del período."""
     momento = momento or ahora().isoformat()
@@ -387,10 +406,7 @@ def recolectar_fuente(fuente, desde, hasta, cliente, directorio, reclasificar=Fa
         listados_ok += 1
         if antigua:
             antiguas.append(antigua)
-        for item in items:
-            previo_item = candidatos.get(item['url'], {})
-            candidatos[item['url']] = {**item, 'titular': item['titular'] or previo_item.get('titular'),
-                                       'fecha': min(filter(None, (item['fecha'], previo_item.get('fecha'))), default=None)}
+        _sumar_candidatos(candidatos, items)
 
     nuevas, fallidas, fuera, ya_guardadas = 0, 0, 0, 0
     if listados_ok:
@@ -499,6 +515,38 @@ def _vista(nota):
                                      'resumen', 'fecha_hecho', 'acceso', 'barrios', 'incidentales', 'alcance')}
 
 
+def _anotar_aperturas(nota, grupos, cobertura, inicio, fin):
+    """Agrupa las aperturas reportadas de una nota por local y dirección; las demás van a cobertura."""
+    for hecho in nota.get('aperturas', []):
+        completo = hecho['local'] and hecho['direccion']
+        if hecho['tipo'] == 'reportada' and completo and hecho['fecha_hecho']:
+            k = (clasif.clave_texto(hecho['local']), clasif.clave_texto(hecho['direccion']))
+            grupo = grupos.setdefault(k, {'local': hecho['local'], 'direccion': hecho['direccion'],
+                                          'barrio': hecho['barrio'], 'fechas': set(), 'notas': {}})
+            grupo['fechas'].add(hecho['fecha_hecho'])
+            grupo['barrio'] = grupo['barrio'] or hecho['barrio']
+            grupo['notas'][nota['url']] = {'medio': nota['medio'], 'titular': nota['titular'], 'url': nota['url'],
+                                           'fecha_publicacion': nota['fecha_publicacion']}
+        elif inicio <= dia(nota['fecha_publicacion']) <= fin:
+            motivo = ('anuncio de una apertura futura' if hecho['tipo'] == 'anuncio' else
+                      'sin fecha de apertura verificable' if not hecho['fecha_hecho'] else
+                      'sin local y dirección identificables')
+            cobertura.append({**hecho, 'motivo': motivo, 'nota': {'medio': nota['medio'], 'url': nota['url'],
+                                                                  'titular': nota['titular']}})
+
+
+def _fila_barrio(barrios, barrio):
+    return barrios.setdefault(barrio, {'barrio': barrio, 'notas': [], 'aperturas': [], 'incidentales': 0})
+
+
+def _sumar_nota(barrios, nota, vista):
+    """Suma la nota a sus barrios principales y cuenta una mención en cada incidental."""
+    for b in nota['barrios']:
+        _fila_barrio(barrios, b)['notas'].append(vista(nota))
+    for b in nota['incidentales']:
+        _fila_barrio(barrios, b)['incidentales'] += 1
+
+
 def boletin(directorio=RADAR_DIR, desde=None):
     """Arma el radar del período: notas por barrio, aperturas reportadas y estado de cada fuente."""
     archivos = {clave: cargar(directorio, clave) for clave in FUENTES}
@@ -531,22 +579,7 @@ def boletin(directorio=RADAR_DIR, desde=None):
     # verificable de la apertura cae en el período.
     grupos, cobertura = {}, []
     for nota in originales + [r for rs in republicadas.values() for r in rs]:
-        for hecho in nota.get('aperturas', []):
-            completo = hecho['local'] and hecho['direccion']
-            if hecho['tipo'] == 'reportada' and completo and hecho['fecha_hecho']:
-                k = (clasif.clave_texto(hecho['local']), clasif.clave_texto(hecho['direccion']))
-                grupo = grupos.setdefault(k, {'local': hecho['local'], 'direccion': hecho['direccion'],
-                                              'barrio': hecho['barrio'], 'fechas': set(), 'notas': {}})
-                grupo['fechas'].add(hecho['fecha_hecho'])
-                grupo['barrio'] = grupo['barrio'] or hecho['barrio']
-                grupo['notas'][nota['url']] = {'medio': nota['medio'], 'titular': nota['titular'], 'url': nota['url'],
-                                               'fecha_publicacion': nota['fecha_publicacion']}
-            elif inicio <= dia(nota['fecha_publicacion']) <= fin:
-                motivo = ('anuncio de una apertura futura' if hecho['tipo'] == 'anuncio' else
-                          'sin fecha de apertura verificable' if not hecho['fecha_hecho'] else
-                          'sin local y dirección identificables')
-                cobertura.append({**hecho, 'motivo': motivo, 'nota': {'medio': nota['medio'], 'url': nota['url'],
-                                                                      'titular': nota['titular']}})
+        _anotar_aperturas(nota, grupos, cobertura, inicio, fin)
     aperturas = []
     for grupo in grupos.values():
         fecha = min(grupo['fechas'])
@@ -558,11 +591,7 @@ def boletin(directorio=RADAR_DIR, desde=None):
 
     barrios = {}
     for nota in en_periodo:
-        for b in nota['barrios']:
-            barrios.setdefault(b, {'barrio': b, 'notas': [], 'aperturas': [], 'incidentales': 0})['notas'].append(
-                con_republicaciones(nota))
-        for b in nota['incidentales']:
-            barrios.setdefault(b, {'barrio': b, 'notas': [], 'aperturas': [], 'incidentales': 0})['incidentales'] += 1
+        _sumar_nota(barrios, nota, con_republicaciones)
     for apertura in aperturas:
         if apertura['barrio']:
             barrios.setdefault(apertura['barrio'], {'barrio': apertura['barrio'], 'notas': [], 'aperturas': [],

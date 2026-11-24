@@ -70,11 +70,15 @@ def main():
     args.salida.parent.mkdir(parents=True, exist_ok=True)
     args.salida.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     for name in ('sin_antiguedad', 'con_antiguedad'):
-        part = result[name]
-        print(f"\n{name} (n={part['avisos']}, R²={part['r2']})")
-        for row in part['rasgos']:
-            mark = '*' if row['distinto_de_cero'] else ' '
-            print(f"  {row['rasgo']:13} {row['diferencia_pct']:+6.1f} % {row['ic95_pct']} {mark}")
+        print_effects(name, result[name])
+
+
+def print_effects(name, part):
+    """Muestra en consola la diferencia de cada rasgo; el asterisco marca los distintos de cero."""
+    print(f"\n{name} (n={part['avisos']}, R²={part['r2']})")
+    for row in part['rasgos']:
+        mark = '*' if row['distinto_de_cero'] else ' '
+        print(f"  {row['rasgo']:13} {row['diferencia_pct']:+6.1f} % {row['ic95_pct']} {mark}")
 
 
 if __name__ == '__main__':

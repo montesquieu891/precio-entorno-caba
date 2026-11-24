@@ -12,3 +12,4 @@ storage/
 .vercel-build/
 .vercel/
 artifacts/ui-audit/
+.claude/skills/

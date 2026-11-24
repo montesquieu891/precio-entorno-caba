@@ -148,75 +148,111 @@ def simple_baselines(train, test, minimum=5):
 def benchmark(data, include_references=False, explain=True, progress=None):
     predictions, fits, explanations = [], [], []
     splits = list(GroupKFold(n_splits=5).split(data, groups=data['grupo']))
+    scopes = ['base', 'edificio'] if data[EXTRA].notna().any().any() else ['base']
     with threadpool_limits(limits=1):
         for fold, (train_index, test_index) in enumerate(splits, 1):
             train, test = data.iloc[train_index], data.iloc[test_index]
             if progress:
                 progress(f'Fold {fold}/5: {len(train)} entrenamiento, {len(test)} prueba')
-            refs = training_comparables(train, test)
-            if include_references:
-                for name, prediction in simple_baselines(train, test).items():
-                    predictions.append(refs.assign(model=name, scope='referencia', fold=fold, estimate=prediction))
-            start = time.perf_counter()
-            predictions.append(refs.assign(model=BASELINE, scope='base', fold=fold,
-                                           estimate=historical_baseline(train, test)))
-            fits.append({'fold': fold, 'scope': 'base', 'model': BASELINE,
-                         'seconds': time.perf_counter() - start, 'params': {}})
-            inner = list(GroupKFold(n_splits=3).split(train, groups=train['grupo']))
-            for scope in ['base', 'edificio'] if data[EXTRA].notna().any().any() else ['base']:
-                extended = scope == 'edificio'
-                features = NUMERIC + CATEGORICAL + (EXTRA if extended else [])
-                fold_ensembles = {}
-                for name, (estimator, grid) in model_specs(extended).items():
-                    start = time.perf_counter()
-                    search = GridSearchCV(estimator, grid, cv=inner, scoring=usd_mae, n_jobs=1, error_score='raise')
-                    with warnings.catch_warnings(record=True) as recorded:
-                        warnings.simplefilter('always', ConvergenceWarning)
-                        search.fit(train[features], np.log(train['precio_m2']))
-                    price = np.exp(search.predict(test[features]))
-                    fit_seconds = time.perf_counter() - start
-                    train_mae = float(np.abs(np.exp(search.predict(train[features])) - train['precio_m2']).mean())
-                    iterations, limit = None, None
-                    if name == 'MLP':
-                        fitted_mlp = search.best_estimator_.regressor_.steps[-1][1]
-                        iterations, limit = int(fitted_mlp.n_iter_), int(fitted_mlp.max_iter)
-                    predictions.append(refs.assign(model=name, scope=scope, fold=fold, estimate=price))
-                    fits.append({'fold': fold, 'scope': scope, 'model': name,
-                                 'params': search.best_params_, 'mae_train': train_mae,
-                                 'mae_test': float(np.abs(price - test['precio_m2']).mean()),
-                                 'seconds': fit_seconds, 'n_iter': iterations, 'max_iter': limit,
-                                 'limite_iteraciones_alcanzado': iterations >= limit if iterations is not None else None,
-                                 'avisos_convergencia_busqueda': sum(issubclass(w.category, ConvergenceWarning) for w in recorded)})
-                    if progress:
-                        progress(f'  {scope} / {name}: MAE {np.abs(price - test.precio_m2).mean():.2f}')
-                    if name == 'Ridge':
-                        pipe = search.best_estimator_
-                        prep, ridge = pipe.steps[0][1], pipe.steps[1][1]
-                        scaler = prep.named_transformers_['num'].named_steps['standardscaler']
-                        for feature, coef, scale in zip(NUMERIC + (['age_years'] if extended else []), ridge.coef_, scaler.scale_):
-                            explanations.append({'fold': fold, 'scope': scope, 'model': name, 'feature': feature,
-                                                 'type': 'coef_log_por_unidad', 'value': coef / scale})
-                    if name in {'Random Forest', 'HistGradientBoosting'}:
-                        fold_ensembles[name] = search.best_estimator_
-                # Ambas explicaciones se calculan sobre el fold externo y permiten elegir qué mostrar después.
-                for name, estimator in (fold_ensembles.items() if explain else []):
-                    importance = permutation_importance(estimator, test[features], np.log(test['precio_m2']),
-                                                        scoring=usd_mae, n_repeats=4, random_state=SEED, n_jobs=1)
-                    explanations.extend({'fold': fold, 'scope': scope, 'model': name, 'feature': feature,
-                                         'type': 'aumento_mae_usd_m2', 'value': value}
-                                        for feature, value in zip(features, importance.importances_mean))
-                    # PDP/ICE de superficie cubierta en el rango central del fold de entrenamiento.
-                    grid = train['covered_area'].quantile(np.linspace(0.1, 0.9, 9))
-                    sample = test[features].sample(n=min(120, len(test)), random_state=SEED)
-                    for quantile, area in grid.items():
-                        ice = np.exp(estimator.predict(sample.assign(covered_area=area)))
-                        explanations.append({'fold': fold, 'scope': scope, 'model': name, 'feature': 'covered_area',
-                                             'type': 'pdp_usd_m2', 'value': ice.mean(), 'quantile': quantile,
-                                             'area': area, 'ice_p10': np.quantile(ice, 0.1), 'ice_p90': np.quantile(ice, 0.9)})
+            fold_predictions, fold_fits, fold_explanations = benchmark_fold(
+                train, test, fold, scopes, include_references, explain, progress)
+            predictions += fold_predictions
+            fits += fold_fits
+            explanations += fold_explanations
     oof = pd.concat(predictions).rename_axis('row').reset_index()
     oof['error'] = oof['estimate'] - oof['precio_m2']
     oof['gap'] = oof['precio_m2'].div(oof['estimate']) - 1
     return oof, pd.DataFrame(fits), pd.DataFrame(explanations)
+
+
+def benchmark_fold(train, test, fold, scopes, include_references, explain, progress):
+    """Predicciones, ajustes y explicaciones de un fold externo, en el orden del informe."""
+    refs = training_comparables(train, test)
+    predictions, explanations = [], []
+    if include_references:
+        baselines = simple_baselines(train, test).items()
+        predictions += [refs.assign(model=name, scope='referencia', fold=fold, estimate=prediction) for name, prediction in baselines]
+    start = time.perf_counter()
+    predictions.append(refs.assign(model=BASELINE, scope='base', fold=fold,
+                                   estimate=historical_baseline(train, test)))
+    fits = [{'fold': fold, 'scope': 'base', 'model': BASELINE, 'seconds': time.perf_counter() - start, 'params': {}}]
+    inner = list(GroupKFold(n_splits=3).split(train, groups=train['grupo']))
+    for scope in scopes:
+        scope_predictions, scope_fits, scope_explanations = benchmark_scope(
+            train, test, refs, fold, scope, inner, explain, progress)
+        predictions += scope_predictions
+        fits += scope_fits
+        explanations += scope_explanations
+    return predictions, fits, explanations
+
+
+def benchmark_scope(train, test, refs, fold, scope, inner, explain, progress):
+    """Ajusta las cinco familias en un escenario y, si se pide, explica los ensambles."""
+    extended = scope == 'edificio'
+    features = NUMERIC + CATEGORICAL + (EXTRA if extended else [])
+    predictions, fits, explanations, fold_ensembles = [], [], [], {}
+    for name, (estimator, grid) in model_specs(extended).items():
+        search, price, fit = fit_model(name, estimator, grid, train, test, features, inner)
+        predictions.append(refs.assign(model=name, scope=scope, fold=fold, estimate=price))
+        fits.append({'fold': fold, 'scope': scope, 'model': name, **fit})
+        if progress:
+            progress(f'  {scope} / {name}: MAE {np.abs(price - test.precio_m2).mean():.2f}')
+        if name == 'Ridge':
+            explanations += ridge_coefficients(search.best_estimator_, extended, fold, scope, name)
+        if name in {'Random Forest', 'HistGradientBoosting'}:
+            fold_ensembles[name] = search.best_estimator_
+    # Ambas explicaciones se calculan sobre el fold externo y permiten elegir qué mostrar después.
+    for name, estimator in (fold_ensembles.items() if explain else []):
+        explanations += explain_ensemble(estimator, train, test, features, fold, scope, name)
+    return predictions, fits, explanations
+
+
+def fit_model(name, estimator, grid, train, test, features, inner):
+    """Busca hiperparámetros en el fold interno; devuelve la búsqueda, el precio estimado y el registro del ajuste."""
+    start = time.perf_counter()
+    search = GridSearchCV(estimator, grid, cv=inner, scoring=usd_mae, n_jobs=1, error_score='raise')
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter('always', ConvergenceWarning)
+        search.fit(train[features], np.log(train['precio_m2']))
+    price = np.exp(search.predict(test[features]))
+    fit_seconds = time.perf_counter() - start
+    train_mae = float(np.abs(np.exp(search.predict(train[features])) - train['precio_m2']).mean())
+    iterations, limit = None, None
+    if name == 'MLP':
+        fitted_mlp = search.best_estimator_.regressor_.steps[-1][1]
+        iterations, limit = int(fitted_mlp.n_iter_), int(fitted_mlp.max_iter)
+    fit = {'params': search.best_params_, 'mae_train': train_mae,
+           'mae_test': float(np.abs(price - test['precio_m2']).mean()),
+           'seconds': fit_seconds, 'n_iter': iterations, 'max_iter': limit,
+           'limite_iteraciones_alcanzado': iterations >= limit if iterations is not None else None,
+           'avisos_convergencia_busqueda': sum(issubclass(w.category, ConvergenceWarning) for w in recorded)}
+    return search, price, fit
+
+
+def ridge_coefficients(pipe, extended, fold, scope, name):
+    """Coeficientes de Ridge en log por unidad original de cada variable numérica."""
+    prep, ridge = pipe.steps[0][1], pipe.steps[1][1]
+    scaler = prep.named_transformers_['num'].named_steps['standardscaler']
+    numeric = NUMERIC + (['age_years'] if extended else [])
+    row = {'fold': fold, 'scope': scope, 'model': name}
+    return [{**row, 'feature': feature, 'type': 'coef_log_por_unidad', 'value': coef / scale} for feature, coef, scale in zip(numeric, ridge.coef_, scaler.scale_)]
+
+
+def explain_ensemble(estimator, train, test, features, fold, scope, name):
+    """Importancia por permutación y PDP/ICE de superficie cubierta de un ensamble."""
+    importance = permutation_importance(estimator, test[features], np.log(test['precio_m2']),
+                                        scoring=usd_mae, n_repeats=4, random_state=SEED, n_jobs=1)
+    row = {'fold': fold, 'scope': scope, 'model': name}
+    explanations = [{**row, 'feature': feature, 'type': 'aumento_mae_usd_m2', 'value': value} for feature, value in zip(features, importance.importances_mean)]
+    # PDP/ICE de superficie cubierta en el rango central del fold de entrenamiento.
+    grid = train['covered_area'].quantile(np.linspace(0.1, 0.9, 9))
+    sample = test[features].sample(n=min(120, len(test)), random_state=SEED)
+    for quantile, area in grid.items():
+        ice = np.exp(estimator.predict(sample.assign(covered_area=area)))
+        explanations.append({**row, 'feature': 'covered_area', 'type': 'pdp_usd_m2', 'value': ice.mean(),
+                             'quantile': quantile, 'area': area,
+                             'ice_p10': np.quantile(ice, 0.1), 'ice_p90': np.quantile(ice, 0.9)})
+    return explanations
 
 
 def scores(rows):
@@ -242,18 +278,21 @@ def bootstrap_mae_delta(rows, baseline, draws=600):
     return np.quantile(sums[samples].sum(axis=1) / sizes[samples].sum(axis=1), [0.025, 0.975])
 
 
+def candidates_by_threshold(candidates):
+    """Cantidad de candidatos con señal que quedan bajo cada umbral de brecha."""
+    return [(threshold, (candidates['gap'].le(threshold) & candidates['proxy']).sum()) for threshold in [-0.15, -0.20, -0.25]]
+
+
 def ranking(oof, k=20):
     rows, sets = [], {}
     for (model, scope, fold), block in oof.groupby(['model', 'scope', 'fold']):
         candidates = block[block['supported'] & ~block['review']].sort_values(['gap', 'row']).drop_duplicates('grupo')
         top = candidates.head(k)
         sets[model, scope, fold] = set(top['grupo'])
-        for threshold in [-0.15, -0.20, -0.25]:
-            passing = candidates['gap'].le(threshold) & candidates['proxy']
-            rows.append({'model': model, 'scope': scope, 'fold': fold, 'top_n': len(top),
-                         'precision_proxy': top['proxy'].mean(), 'coverage': block['supported'].mean(),
-                         'flags_in_top_without_review': block.sort_values(['gap', 'row']).drop_duplicates('grupo').head(k)['review'].sum(),
-                         'threshold': threshold, 'candidates': int(passing.sum())})
+        row = {'model': model, 'scope': scope, 'fold': fold, 'top_n': len(top),
+               'precision_proxy': top['proxy'].mean(), 'coverage': block['supported'].mean(),
+               'flags_in_top_without_review': block.sort_values(['gap', 'row']).drop_duplicates('grupo').head(k)['review'].sum()}
+        rows += [{**row, 'threshold': threshold, 'candidates': int(passing)} for threshold, passing in candidates_by_threshold(candidates)]
     table = pd.DataFrame(rows)
     for index, row in table.iterrows():
         top = sets[row['model'], row['scope'], row['fold']]

@@ -26,10 +26,13 @@ class BenchmarkIntegrityTests(unittest.TestCase):
             train, test = data.iloc[train_index], data.iloc[test_index]
             self.assertTrue(set(train.grupo).isdisjoint(test.grupo))
             seen.extend(test_index)
-            for a, b in GroupKFold(3).split(train, groups=train.grupo):
-                self.assertTrue(set(train.iloc[a].grupo).isdisjoint(train.iloc[b].grupo))
-                self.assertTrue(set(train.iloc[b].grupo).isdisjoint(test.grupo))
+            self.assert_inner_folds_separate(train, test)
         self.assertEqual(sorted(seen), list(range(len(data))))
+
+    def assert_inner_folds_separate(self, train, test):
+        for a, b in GroupKFold(3).split(train, groups=train.grupo):
+            self.assertTrue(set(train.iloc[a].grupo).isdisjoint(train.iloc[b].grupo))
+            self.assertTrue(set(train.iloc[b].grupo).isdisjoint(test.grupo))
 
     def test_comparables_use_training_prices_and_count_properties(self):
         train, test = self.data.iloc[:100], self.data.iloc[100:].copy()
