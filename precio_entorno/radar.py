@@ -308,13 +308,15 @@ def _listar(cliente, fuente, tipo, url, desde):
     if tipo == 'rss':
         items = parse_rss(cliente.get(url))
     elif tipo == 'rss_paginado':
-        items, desplazamiento = [], 0
+        items, vistas, desplazamiento = [], set(), 0
         for _ in range(6):
             pagina = parse_rss(cliente.get(f'{url}&from={desplazamiento}' if desplazamiento else url))
-            nuevos = [i for i in pagina if i['url'] not in {x['url'] for x in items}]
+            # Las URL ya leídas se guardan en un set que crece con cada página, en lugar de rearmarlo por ítem.
+            nuevos = [i for i in pagina if i['url'] not in vistas]
             if not nuevos:
                 break
             items += nuevos
+            vistas.update(i['url'] for i in nuevos)
             desplazamiento += len(pagina)
             fechas = [dia(i['fecha']) for i in pagina if i['fecha']]
             if fechas and min(fechas) < desde:
